@@ -9,7 +9,20 @@ export type Decision = { action: 'switch' | 'delegate' | 'keep'; tier: Tier; eff
 export type Pin = { tier: Tier; effort: Effort }
 /** The status line's `prompt_cache`, relayed by ~/.claude/hooks/statusline.js. */
 export type CacheInfo = { warm: boolean; caching: boolean; ttl?: string; expiresAt: number | null; recacheTokensIfCold: number | null; hitRatio: number | null }
-export type CacheVerdict = { isFree: boolean; why: string; recache: number }
+/** `isCold`: the next request rewrites the whole context (TTL passed or cache already cold). */
+export type CacheVerdict = { isFree: boolean; isCold: boolean; why: string; recache: number }
+
+/** Keep-warm run: a ping through `$.model.fork` before the TTL ends, until `until`. */
+export type KeepWarm = { until: number; pings: number; lastPingAt: number; stopped: string | null }
+/** A file another open session edited recently, that this session edited too. */
+export type Collision = { file: string; who: string; at: number }
+/** One session's edit ledger, a file per session under ~/.claude/mods-data/compagnon/edits/. */
+export type Ledger = { id: string; title: string; updatedAt: number; ended: boolean; files: Record<string, { path: string; at: number }> }
+/** A handoff asked of Claude (`writing`), then found on disk (`ready`). */
+export type Handoff = { path: string; state: 'writing' | 'ready'; askedAt: number; pending: string; turnStarted: boolean }
+export type TaskRow = { id: string; subject: string; status: 'pending' | 'in_progress' | 'completed' | 'deleted' }
+/** The session's goal (`/goal <condition>` or ProposeGoal), measured on the native task list. */
+export type Goal = { condition: string; startedAt: number }
 
 export type ToolSpan = { tool: string; start: number; end: number }
 export type RunningTool = { id: string; tool: string; label: string; start: number }
@@ -49,6 +62,12 @@ declare module 'claude-code' {
       usedRepos: Shaped<string[]>
       isProjectsOpen: Shaped<boolean>
       tick: Shaped<number>
+      keepWarm: Shaped<KeepWarm | null>
+      collisions: Shaped<Collision[]>
+      handoff: Shaped<Handoff | null>
+      tasks: Shaped<TaskRow[]>
+      goal: Shaped<Goal | null>
+      isWorking: Shaped<boolean>
     }
   }
 }

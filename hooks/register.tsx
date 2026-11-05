@@ -3,9 +3,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, BackgroundTask, CacheInfo, Usage } from '../types'
-import { ContextCard, ModelCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
-import { MODEL_OF, advise, cacheState, dayKey, delegationHint, normPath, parseStatus, recordSample, route, summarizeParallel, tierOf, touchedRepos, type DailySamples } from './logic'
+import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, TaskRow, Usage } from '../types'
+import { ContextCard, GoalCard, KeysLine, ModelCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
+import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
+import { MODEL_OF, advise, cacheState, dayKey, delegationHint, needsColdGuard, normPath, parseStatus, recordSample, route, summarizeParallel, tierOf, touchedRepos, ttlMs, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -23,6 +24,13 @@ const repos = atom({ plugin: 'compagnon', key: 'repos' } as const, [], { shape: 
 const usedRepos = atom({ plugin: 'compagnon', key: 'usedRepos' } as const, [], { shape: 'v1' })
 const isProjectsOpen = atom({ plugin: 'compagnon', key: 'isProjectsOpen' } as const, false, { shape: 'v1' })
 const tick = atom({ plugin: 'compagnon', key: 'tick' } as const, 0, { shape: 'v1' })
+// The guards' state, owned by guards.ts: declared again here because the state scan reads each module alone.
+const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
+const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
+const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
+const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
+const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
+const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 
 const TICK_MS = 15_000
 const REPOS_MS = 60_000
@@ -36,6 +44,9 @@ const labelOf = (tool: string, input: Record<string, unknown>): string => {
 }
 
 let reposAt = 0
+/** Context size over which a send on a cold cache asks first (`coldGuardTokens` option; 0 = never). */
+let coldGuardTokens = 150_000
+const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
 /** The panel's bookkeeping never fails a prompt or a tool call: a broken update is dropped, the work goes on. */
 const quietly = async (work: () => Promise<unknown>): Promise<void> => {
@@ -83,6 +94,35 @@ async function refreshCache($: $) {
   }
 }
 
+/** Until when a keep-warm ping holds the cache warm: 0 without a successful ping (the status line goes stale after one). */
+const warmUntilOf = (kw: { lastPingAt: number } | null, c: CacheInfo | null) => (kw?.lastPingAt ? kw.lastPingAt + ttlMs(c) : 0)
+
+/** The cache verdict now, keep-warm pings included. */
+async function verdictNow($: $): Promise<CacheVerdict> {
+  const [u, c, last, kw, now] = await Promise.all([read($, usage), read($, cache), read($, lastTurnEnd), read($, keepWarm), $.clock.now()])
+  return cacheState(c, now, last, u?.contextTokens ?? 0, warmUntilOf(kw, c))
+}
+
+/** The session's task list, kept from the main loop's and subagents' task tools (they write the same list). */
+async function trackTasks($: $, tool: string, input: Record<string, unknown>, result: unknown) {
+  const res = result as { task?: { id: string; subject: string } } | undefined
+  const created = res?.task
+  if (tool === 'TaskCreate' && created) await update($, tasks, list => [...list, { id: created.id, subject: created.subject, status: 'pending' as const }])
+  if (tool === 'TaskUpdate' && typeof input.taskId === 'string')
+    await update($, tasks, list => list.map(t => (t.id === input.taskId ? { ...t, status: (input.status as TaskRow['status']) ?? t.status, subject: (input.subject as string) ?? t.subject } : t)))
+  if (tool === 'TodoWrite' && Array.isArray(input.todos))
+    await update($, tasks, () => (input.todos as Array<{ content: string; status: TaskRow['status'] }>).map((t, i) => ({ id: `todo-${i}`, subject: t.content, status: t.status })))
+  if (tool === 'ProposeGoal' && typeof input.condition === 'string') {
+    const startedAt = await $.clock.now()
+    await update($, goal, () => ({ condition: input.condition as string, startedAt }))
+  }
+}
+
+async function stopTask($: $, id: string) {
+  await $.tool.call({ tool: 'TaskStop', task_id: id })
+  await update($, background, list => list.filter(t => t.id !== id))
+}
+
 async function refreshAgents($: $) {
   const now = await $.clock.now()
   const list = await $.agent.list()
@@ -118,8 +158,11 @@ async function refreshRepos($: $) {
 
 export const register: Register = (on, options) => {
   projects = String(options.projects ?? '').split(';').map(p => p.trim()).filter(Boolean)
+  const guardOption = String(options.coldGuardTokens ?? '').trim()
+  if (guardOption !== '' && Number.isFinite(Number(guardOption.replace(/k$/i, '000')))) coldGuardTokens = Number(guardOption.replace(/k$/i, '000'))
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'compagnon', description: 'Rouvrir le panneau compagnon' })
+    await initGuards($)
+    await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff)', argumentHint: '[keepwarm [h|off] | handoff]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void refreshRepos($)
     void refreshUsage($)
@@ -128,35 +171,107 @@ export const register: Register = (on, options) => {
       for (;;) {
         await $.clock.sleep(TICK_MS)
         await update($, tick, (n: number) => n + 1)
-        await Promise.all([refreshAgents($), refreshUsage($), refreshCache($)])
+        const n = await read($, tick)
+        await Promise.all([refreshAgents($), refreshUsage($), refreshCache($), refreshCollisions($)])
+        // Not awaited: a slow ping must not hold the refreshes and the ledger's heartbeat (keepWarmTick skips a second ping).
+        void quietly(async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
+        if (n % 4 === 0) await writeLedger($) // the ledger's heartbeat: a ledger quiet for 15 min is a closed session
       }
     })()
     return next(e)
   })
 
-  on('command.run', { command: 'compagnon' }, async $ => {
+  on('command.run', { command: 'compagnon' }, async ($, e) => {
+    const [verb, arg] = String(e.args ?? '').trim().toLowerCase().split(/\s+/)
+    if (verb === 'keepwarm') {
+      const hours = arg === 'off' ? null : Number(arg) > 0 ? Number(arg) : 2
+      await setKeepWarm($, hours)
+      return { text: hours ? `Cache maintenu au chaud ${hours} h : un ping avant chaque expiration, arrêt s’il réécrit au lieu de lire.` : 'Maintien du cache coupé.' }
+    }
+    if (verb === 'handoff') {
+      $.clock.after(300, () => void quietly(() => askHandoff($)))
+      return { text: 'Handoff demandé : le panneau propose ensuite de repartir d’une session neuve (touche c).' }
+    }
     await $.ui.open({ id: PANE, title: 'Compagnon' })
     return { text: 'Panneau compagnon ouvert.' }
   })
+
+  // The goal is measured on the native task list; `/goal clear` (or stop) ends it.
+  on('command.run', { command: 'goal' }, async ($, e, next) => {
+    const done = await next(e)
+    await quietly(async () => {
+      const args = String(e.args ?? '').trim()
+      const startedAt = await $.clock.now()
+      if (/^(clear|stop|off|cancel)$/i.test(args)) await update($, goal, () => null)
+      else if (args) await update($, goal, () => ({ condition: args, startedAt }))
+    })
+    return done
+  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+
+  // /clear and /resume carry on under a new session id: a fresh ledger, task list and keep-warm.
+  on('classic.SessionStart', { source: ['clear', 'resume'] }, async ($, e, next) => {
+    await quietly(async () => {
+      await renewSession($)
+      await Promise.all([
+        update($, tasks, () => []), update($, goal, () => null), update($, keepWarm, () => null), update($, lastTurnEnd, () => 0),
+        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []),
+      ])
+    })
+    return next(e)
+  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+
+  on('session.end', async ($, e, next) => {
+    await quietly(() => writeLedger($, true))
+    return next(e)
+  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
 
   // Automatic routing (user directive 2026-11-05): switch the main loop only when no warm cache is lost,
   // otherwise keep it and steer the work to a subagent on the right model.
   on('prompt.submit', async ($, e, next) => {
     let hint = ''
+    const text = e.text ?? ''
+    const fromUser = e.origin?.kind === 'composer' || e.origin?.kind === 'bridge'
+    if (fromUser) nameSession(text)
+    // Cold-send guard (from Cache Keeper): a cold cache over the threshold asks before rewriting it all.
+    if (fromUser && !e.turnId && !text.trim().startsWith('/')) {
+      let verdict: CacheVerdict | null = null
+      await quietly(async () => {
+        await refreshCache($)
+        verdict = await verdictNow($)
+      })
+      const v = verdict as CacheVerdict | null
+      if (v && needsColdGuard(v, coldGuardTokens)) {
+        const answer = await $.ui
+          .ask(`Cache froid : envoyer maintenant relit ${Math.round(v.recache / 1000)} k tokens de contexte. Que faire ?`, {
+            header: 'Cache froid',
+            options: ['Envoyer', 'Compacter puis envoyer', 'Handoff puis session neuve', 'Annuler'],
+          })
+          .catch(() => 'Envoyer') // nobody to ask (a -p run) or dismissed: send as typed
+        if (answer === 'Compacter puis envoyer') {
+          const isCompacted = await $.session.compact().then(() => true, () => false)
+          if (!isCompacted) await $.ui.toast('Compaction refusée par le moteur : message envoyé tel quel.')
+        }
+        if (answer === 'Handoff puis session neuve') {
+          $.clock.after(300, () => void quietly(() => askHandoff($, text)))
+          return { drop: 'Retenu par compagnon : handoff puis session neuve, le message sera renvoyé après.' }
+        }
+        if (answer === 'Annuler') return { drop: 'Annulé par compagnon avant de relire un cache froid.' }
+      }
+    }
     await quietly(async () => {
       await update($, waiting, () => null)
       await update($, spans, () => [])
-      const need = advise(e.text ?? '')
+      const need = advise(text)
       if (!need || (await $.store.get('auto')) === false) return
       await refreshCache($)
-      const [u, p, c, last, now] = await Promise.all([read($, usage), read($, pin), read($, cache), read($, lastTurnEnd), $.clock.now()])
+      const [u, p] = await Promise.all([read($, usage), read($, pin)])
       const current = p?.tier ?? tierOf(u?.model ?? (await $.session.model()))
-      const d = route(need, current, cacheState(c, now, last, u?.contextTokens ?? 0))
+      const d = route(need, current, await verdictNow($))
       await update($, decision, () => d)
       if (d.action === 'switch') await update($, pin, () => ({ tier: d.tier, effort: d.effort }))
       if (d.action === 'delegate') hint = delegationHint(d, need.need)
     })
-    return next(hint ? { ...e, text: (e.text ?? '') + hint } : e)
+    return next(hint ? { ...e, text: text + hint } : e)
   }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
 
   // The pin applies to the main loop only: subagents keep the model their definition names.
@@ -168,6 +283,15 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     let start = 0
     const id = e.tool_use_id ?? `${e.tool}-${Math.random()}`
+    const input = e as unknown as Record<string, unknown>
+    // Collision guard (from Collision Guard): another open session edited this file in the last 30 min?
+    if (EDITORS.has(e.tool)) {
+      let refusal: { deny: string } | null = null
+      await quietly(async () => {
+        refusal = await guardEdit($, String(input.file_path ?? input.notebook_path ?? ''))
+      })
+      if (refusal) return refusal as { deny: string }
+    }
     await quietly(async () => {
       start = await $.clock.now()
       await update($, waiting, () => null)
@@ -176,7 +300,9 @@ export const register: Register = (on, options) => {
       if (hit.length > 0) await update($, usedRepos, list => (hit.every(h => list.includes(h)) ? list : [...new Set([...list, ...hit])]))
     })
     try {
-      return await next(e)
+      const done = await next(e)
+      if (done.result !== undefined) await quietly(() => trackTasks($, e.tool, input, done.result))
+      return done
     } finally {
       await quietly(async () => {
         const end = await $.clock.now()
@@ -214,8 +340,26 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
 
+  on('turn.start', async ($, e, next) => {
+    if (!e.agentId)
+      await quietly(async () => {
+        await update($, isWorking, () => true)
+        await noteTurnStart($)
+      })
+    return next(e)
+  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    // A subagent's end changes the Process card only.
+    if (e.agentId) {
+      await quietly(() => refreshAgents($))
+      return done
+    }
+    await quietly(async () => {
+      await update($, isWorking, () => false)
+      await checkHandoff($)
+    })
     const ended = await $.clock.now()
     await update($, lastTurnEnd, () => ended)
     const list = await read($, spans)
@@ -235,25 +379,36 @@ export const register: Register = (on, options) => {
     ])
     const isAuto = (await $.store.get('auto')) !== false
     const samples = ((await $.store.get('weekPeaks')) ?? {}) as DailySamples
-    const [used, isOpen] = await Promise.all([read($, usedRepos), read($, isProjectsOpen)])
+    const [used, isOpen, kw, clash] = await Promise.all([read($, usedRepos), read($, isProjectsOpen), read($, keepWarm), read($, collisions)])
+    const [ho, g, taskList, verdict] = await Promise.all([read($, handoff), read($, goal), read($, tasks), verdictNow($)])
+    const width = Math.min(64, e.props.bodyColumns)
+    const ttl = ttlMs(c)
+    // The countdown counts a keep-warm ping too: the status line's expiry is stale after one.
+    const expiry = Math.max(c?.expiresAt ? c.expiresAt * 1000 : 0, warmUntilOf(kw, c))
+    const warmLeft = expiry > 0 ? expiry - now : null
+    const isKeepWarm = Boolean(kw && !kw.stopped)
     const { Box } = E
     return (
       <Box flexDirection="column">
-        {ModelCard(E, u, d, p, c, now, isAuto, async () => {
-          await $.store.set('auto', !isAuto)
-          if (isAuto) await update($, pin, () => null) // off = back to the session's own model
-          await update($, tick, n => n + 1)
-        })}
-        {ContextCard(E, u)}
-        {PlanCard(E, u, samples, now)}
-        {ProcessCard(E, now, run, bg, ag, w,
-          async id => {
-            await $.tool.call({ tool: 'TaskStop', task_id: id })
-            await update($, background, list => list.filter(t => t.id !== id))
+        {ModelCard(E, width, u, d, p, c, verdict, kw, warmLeft, ttl, isAuto)}
+        {ContextCard(E, width, u, ho)}
+        {PlanCard(E, width, u, samples, now)}
+        {GoalCard(E, width, g, taskList, now)}
+        {ProcessCard(E, width, now, run, bg, ag, w, id => void stopTask($, id), id => $.ui.view({ agentId: id }))}
+        {ParallelCard(E, width, par)}
+        {ProjectsCard(E, width, rp, used, clash, now, isOpen)}
+        {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen }, {
+          auto: async () => {
+            await $.store.set('auto', !isAuto)
+            if (isAuto) await update($, pin, () => null) // off = back to the session's own model
+            await update($, tick, n => n + 1)
           },
-          id => $.ui.view({ agentId: id }))}
-        {ParallelCard(E, par)}
-        {ProjectsCard(E, rp, used, isOpen, () => update($, isProjectsOpen, v => !v), () => refreshRepos($))}
+          keepWarm: () => void setKeepWarm($, isKeepWarm ? null : 2),
+          handoff: () => void quietly(() => askHandoff($)),
+          resume: () => void quietly(() => continueFromHandoff($)),
+          refresh: () => void refreshRepos($),
+          fold: () => void update($, isProjectsOpen, v => !v),
+        })}
       </Box>
     )
   })

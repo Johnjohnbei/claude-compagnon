@@ -1,155 +1,217 @@
-// The pane's cards, compact: one line per concern when all is well, detail lines only when something needs a look.
-// A coloured dot carries the state (green, orange, red); no borders, no margins.
+// The pane's cards: stacked rounded cards, the title and the key figure set in the top border, one or two lines
+// inside, detail only when it needs a look (user choice 2026-11-05, "cards empilées"). The keys sit on one legend
+// line under the cards, not inside them.
 import type { Elements, RenderChildren } from 'claude-code'
 
-import type { AgentRow, BackgroundTask, CacheInfo, Decision, Level, ParallelSummary, Pin, RepoState, RunningTool, Usage, Waiting } from '../types'
-import { TIER_LABEL, ageLabel, bar, lastSevenDays, levelOf, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
+import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, Decision, Goal, Handoff, KeepWarm, Level, ParallelSummary, Pin, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
+import { TIER_LABEL, ageLabel, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
 const COLOR: Record<Level, string> = { ok: 'success', warn: 'warning', alert: 'error' }
-const TITLE_WIDTH = 13
-const BAR = 8
+const GAUGE = 10
 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
 const TOOL_LONG = 120_000
 const TASK_LONG = 600_000
 
-/** One concern: dot, title, a one-line summary, then optional detail lines under the summary. */
-function Card(E: El, title: string, level: Level, summary: RenderChildren, details: RenderChildren[] = []) {
+const k = (tokens: number) => `${Math.round(tokens / 1000)} k`
+const AGENT_STATUS: Record<string, string> = { running: 'en cours', waiting: 'attend', failed: 'en échec', pending: 'en attente' }
+
+/** `▰▰▰▰▰▰▱▱▱▱`: a thin gauge. */
+export const gauge = (pct: number, width = GAUGE): string => {
+  const full = Math.max(0, Math.min(width, Math.round((pct / 100) * width)))
+  return '▰'.repeat(full) + '▱'.repeat(width - full)
+}
+
+/**
+ * One card, `width` columns wide: `╭─ Title ──── value ─╮`, its lines between `│ … │`, then `╰───╯`.
+ * The border stays quiet (dim) while all is well and takes the state's colour otherwise.
+ */
+function Card(E: El, width: number, title: string, value: string, level: Level, lines: RenderChildren[]) {
   const { Box, Text } = E
+  const w = Math.max(24, width)
+  const border = level === 'ok' ? undefined : COLOR[level]
+  const fill = Math.max(1, w - title.length - value.length - 8)
   return (
-    <Box flexDirection="column">
-      <Box>
-        <Text color={COLOR[level]}>● </Text>
-        <Box width={TITLE_WIDTH} flexShrink={0}>
-          <Text bold>{title}</Text>
+    <Box flexDirection="column" width={w}>
+      <Text wrap="truncate-end">
+        <Text color={border} dimColor={!border}>╭─ </Text>
+        <Text bold>{title}</Text>
+        <Text color={border} dimColor={!border}> {'─'.repeat(fill)} </Text>
+        <Text color={border} bold>{value}</Text>
+        <Text color={border} dimColor={!border}> ─╮</Text>
+      </Text>
+      {lines.filter(Boolean).map(l => (
+        <Box width={w}>
+          <Text color={border} dimColor={!border}>│ </Text>
+          <Box width={w - 4} flexShrink={0}>{l}</Box>
+          <Text color={border} dimColor={!border}> │</Text>
         </Box>
-        <Box flexShrink={1}>{summary}</Box>
-      </Box>
-      {details.filter(Boolean).map(d => (
-        <Box paddingLeft={2 + TITLE_WIDTH}>{d}</Box>
       ))}
+      <Text color={border} dimColor={!border}>╰{'─'.repeat(w - 2)}╯</Text>
     </Box>
   )
 }
 
-const ACTION_STATE: Record<Decision['action'], [Level, string]> = {
-  switch: ['ok', 'basculé'],
-  delegate: ['warn', 'délégué'],
-  keep: ['ok', 'adapté'],
+/** `warmLeft`: time the cache stays warm, keep-warm pings included (the status line's figure goes stale after one). */
+export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean) {
+  const { Text } = E
+  const current = pin ? pin.tier : tierOf(usage?.model ?? 'opus')
+  const level: Level = verdict.isCold || kw?.stopped ? 'warn' : 'ok'
+  const cacheLine = verdict.isCold ? (
+    <Text color="warning" wrap="truncate-end">cache froid · relit {k(verdict.recache)}</Text>
+  ) : warmLeft !== null && warmLeft > 0 ? (
+    <Text wrap="truncate-end">
+      <Text dimColor>cache </Text>
+      <Text color="success">{gauge((warmLeft / ttl) * 100)}</Text>
+      <Text>  {ageLabel(warmLeft)}</Text>
+      <Text dimColor> · {k(verdict.recache)}{kw && !kw.stopped ? ' · au chaud' : ''}</Text>
+    </Text>
+  ) : (
+    <Text dimColor wrap="truncate-end">cache {cache ? 'chaud' : 'estimé'} · {k(verdict.recache)}</Text>
+  )
+  const detail = kw?.stopped
+    ? <Text color="warning" wrap="truncate-end">↳ maintien arrêté : {kw.stopped}</Text>
+    : !isAuto
+      ? <Text dimColor>↳ choix automatique coupé</Text>
+      : d && d.action !== 'keep'
+        ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_LABEL[d.tier]}</Text>
+        : null
+  return Card(E, width, 'Modèle', TIER_LABEL[current], level, [cacheLine, detail])
 }
 
-export function ModelCard(E: El, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, now: number, isAuto: boolean, onToggle: () => void) {
-  const { Text, Button } = E
-  const current = pin ? pin.tier : tierOf(usage?.model ?? 'opus')
-  const [level, state] = !isAuto ? (['ok', 'auto coupé'] as [Level, string]) : d ? ACTION_STATE[d.action] : (['ok', 'auto'] as [Level, string])
-  const expires = cache?.expiresAt ? cache.expiresAt * 1000 - now : null
-  const cacheLine = cache
-    ? `cache ${cache.warm ? 'chaud' : 'froid'}${expires && expires > 0 ? ` ${ageLabel(expires)}` : ''}${cache.hitRatio !== null ? ` · ${Math.round(cache.hitRatio * 100)} % lu` : ''}`
-    : 'cache : règle des 1 h'
-  return Card(E, 'Modèle', level, (
+export function ContextCard(E: El, width: number, usage: Usage | null, ho: Handoff | null) {
+  const { Text } = E
+  if (!usage) return Card(E, width, 'Contexte', '…', 'ok', [<Text dimColor>après la première réponse</Text>])
+  const level = levelOf(usage.contextPct)
+  return Card(E, width, 'Contexte', `${Math.round(usage.contextPct)} %`, level, [
     <Text wrap="truncate-end">
-      {TIER_LABEL[current]}
-      {pin ? ` ${pin.effort}` : ''} <Text color={COLOR[level]}>{state}</Text>
-    </Text>
-  ), [
-    <Text dimColor wrap="truncate-end">{cacheLine}</Text>,
-    d && d.action !== 'keep' ? <Text dimColor wrap="truncate-end">{d.why}</Text> : null,
-    <Button key="auto" plain dimColor hotkey="a" label={isAuto ? 'couper l’auto' : 'réactiver l’auto'} onPress={onToggle} />,
+      <Text color={COLOR[level]}>{gauge(usage.contextPct)}</Text>
+      <Text dimColor>  {k(usage.contextTokens)} / {k(usage.contextWindow)}</Text>
+    </Text>,
+    ho?.state === 'ready'
+      ? <Text color="success">↳ handoff prêt : touche c</Text>
+      : ho?.state === 'writing'
+        ? <Text dimColor>↳ handoff en cours d’écriture…</Text>
+        : level !== 'ok' ? <Text color={COLOR[level]}>↳ bientôt plein : /clear ou handoff (h)</Text> : null,
   ])
 }
 
-export function ContextCard(E: El, usage: Usage | null) {
+export function PlanCard(E: El, width: number, usage: Usage | null, samples: DailySamples, now: number) {
   const { Text } = E
-  if (!usage) return Card(E, 'Contexte', 'ok', <Text dimColor>après la 1re réponse</Text>)
-  const level = levelOf(usage.contextPct)
-  return Card(E, 'Contexte', level, (
-    <Text wrap="truncate-end">
-      <Text color={COLOR[level]}>{bar(usage.contextPct, BAR)}</Text> {Math.round(usage.contextPct)} %{' '}
-      <Text dimColor>
-        {Math.round(usage.contextTokens / 1000)}/{Math.round(usage.contextWindow / 1000)} k
-      </Text>
-    </Text>
-  ), [level !== 'ok' ? <Text color="warning">nouveau sujet : /clear (gratuit)</Text> : null])
-}
-
-export function PlanCard(E: El, usage: Usage | null, samples: DailySamples, now: number) {
-  const { Text } = E
-  const limits = usage?.limits ?? []
-  const week = limits.find(l => l.kind === 'seven_day')
-  if (!week) return Card(E, 'Forfait', 'ok', <Text dimColor>après la 1re réponse</Text>)
+  const week = (usage?.limits ?? []).find(l => l.kind === 'seven_day')
+  if (!week) return Card(E, width, 'Forfait 7 j', '…', 'ok', [<Text dimColor>après la première réponse</Text>])
   const level = levelOf(week.percentUsed)
-  return Card(E, 'Forfait', level, (
+  // Today counts at least what the status line reads now, sampled or not yet.
+  const days = lastSevenDays(samples, now).map((v, i) => (i === 6 ? Math.max(v, week.percentUsed) : v))
+  return Card(E, width, 'Forfait 7 j', `${Math.round(week.percentUsed)} %`, level, [
     <Text wrap="truncate-end">
-      <Text color={COLOR[level]}>7 j {Math.round(week.percentUsed)} %</Text> <Text color="suggestion">{sparkline(lastSevenDays(samples, now))}</Text>
-    </Text>
-  ), [level !== 'ok' ? <Text dimColor wrap="truncate-end">{resetLabel(week.resetsAt, now)}</Text> : null])
+      <Text color="suggestion">{sparkline(days)}</Text>
+      <Text dimColor>  {resetLabel(week.resetsAt, now)}</Text>
+    </Text>,
+  ])
 }
 
-export function ProcessCard(E: El, now: number, running: RunningTool[], tasks: BackgroundTask[], agents: AgentRow[], waiting: Waiting | null, onStop: (id: string) => void, onView: (id: string) => void) {
+/** Goal (from Goal Meter): `/goal` measured on the native task list; no card while there is neither goal nor task. */
+export function GoalCard(E: El, width: number, g: Goal | null, list: TaskRow[], now: number) {
+  const { Text } = E
+  if (!g && list.length === 0) return null
+  const p = goalProgress(list, g?.startedAt ?? now, now)
+  const current = list.find(t => t.status === 'in_progress')
+  return Card(E, width, 'Objectif', `${p.done}/${p.total}`, 'ok', [
+    <Text wrap="truncate-end">
+      <Text color="suggestion">{gauge(p.pct)}</Text>
+      <Text>  {current?.subject ?? g?.condition ?? ''}</Text>
+      {p.etaMs !== null ? <Text dimColor> · ~{ageLabel(p.etaMs)}</Text> : ''}
+    </Text>,
+  ])
+}
+
+export function ProcessCard(E: El, width: number, now: number, running: RunningTool[], tasks: BackgroundTask[], agents: AgentRow[], waiting: Waiting | null, onStop: (id: string) => void, onView: (id: string) => void) {
   const { Box, Text, Button } = E
   const live = agents.filter(a => a.status !== 'completed' && a.status !== 'killed')
   const longTools = running.filter(t => now - t.start > TOOL_LONG)
   const oldTasks = tasks.filter(t => now - t.firstSeen > TASK_LONG)
   const stuck = live.filter(a => a.status === 'failed' || a.status === 'waiting' || now - a.firstSeen > TASK_LONG)
   const level: Level = waiting || live.some(a => a.status === 'failed') ? 'alert' : longTools.length + oldTasks.length + stuck.length > 0 ? 'warn' : 'ok'
-  const counts = [running.length && `${running.length} outil${running.length > 1 ? 's' : ''}`, tasks.length && `${tasks.length} en fond`, live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`].filter(Boolean).join(' · ')
-  const summary = waiting ? 'attend ta réponse' : level === 'ok' ? counts || 'rien en cours' : `à vérifier · ${counts}`
-  // Only what needs a look gets a line: the rest is in the count.
-  return Card(E, 'Process', level, <Text color={level === 'ok' ? undefined : COLOR[level]} wrap="truncate-end">{summary}</Text>, [
-    waiting ? <Text color="error" wrap="truncate-end">{waiting.message} · {ageLabel(now - waiting.at)}</Text> : null,
-    ...longTools.map(t => <Text color="warning" wrap="truncate-end">{t.tool} {t.label} · {ageLabel(now - t.start)}</Text>),
-    ...oldTasks.map(t => (
+  const busy = running.length + tasks.length + live.length
+  const others = [live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, tasks.length && `${tasks.length} en fond`].filter(Boolean).join(' · ')
+  const summary = running[0] ? `${running[0].tool} ${ageLabel(now - running[0].start)}${others ? ` · ${others}` : ''}` : others || 'rien en cours'
+  // Only what needs a look gets its own line; the rest is in the summary.
+  return Card(E, width, 'Process', waiting ? 'attend' : busy ? `${busy} en cours` : 'calme', level, [
+    waiting ? <Text color="error" wrap="truncate-end">{waiting.message} · {ageLabel(now - waiting.at)}</Text> : <Text dimColor={level === 'ok'} wrap="truncate-end">{summary}</Text>,
+    ...longTools.slice(0, 2).map(t => <Text color="warning" wrap="truncate-end">↳ {t.tool} {t.label} · {ageLabel(now - t.start)}</Text>),
+    ...oldTasks.slice(0, 2).map(t => (
       <Box>
-        <Text color="warning" wrap="truncate-end">{t.label} · {ageLabel(now - t.firstSeen)} </Text>
+        <Text color="warning" wrap="truncate-end">↳ {t.label} · {ageLabel(now - t.firstSeen)} </Text>
         <Button key={`stop-${t.id}`} plain dimColor label="arrêter" onPress={() => onStop(t.id)} />
       </Box>
     )),
-    ...stuck.map(a => (
+    ...stuck.slice(0, 2).map(a => (
       <Box>
-        <Text color={a.status === 'failed' ? 'error' : 'warning'} wrap="truncate-end">{a.label} {a.status} · {ageLabel(now - a.firstSeen)} </Text>
+        <Text color={a.status === 'failed' ? 'error' : 'warning'} wrap="truncate-end">↳ {a.label} · {AGENT_STATUS[a.status] ?? a.status} · {ageLabel(now - a.firstSeen)} </Text>
         <Button key={`view-${a.id}`} plain dimColor label="voir" onPress={() => onView(a.id)} />
       </Box>
     )),
   ])
 }
 
-export function ParallelCard(E: El, p: ParallelSummary | null) {
+export function ParallelCard(E: El, width: number, p: ParallelSummary | null) {
   const { Text } = E
-  if (!p || p.total === 0) return Card(E, 'Parallélisme', 'ok', <Text dimColor>bilan en fin de tour</Text>)
+  if (!p || p.total === 0) return Card(E, width, 'Parallélisme', '…', 'ok', [<Text dimColor>bilan en fin de tour</Text>])
   const level: Level = p.sequentialReads >= 6 ? 'alert' : p.sequentialReads >= 4 ? 'warn' : 'ok'
-  return Card(E, 'Parallélisme', level, (
+  return Card(E, width, 'Parallélisme', `${p.overlapped}/${p.total}`, level, [
     <Text wrap="truncate-end">
-      {p.overlapped}/{p.total} en parallèle{p.agents ? ` · ${p.agents} agents` : ''}
-    </Text>
-  ), [level !== 'ok' ? <Text color={COLOR[level]} wrap="truncate-end">{p.sequentialReads} lectures en série : grouper ou déléguer</Text> : null])
+      <Text color={COLOR[level]}>{gauge((p.overlapped / p.total) * 100)}</Text>
+      <Text dimColor>  {level === 'ok' ? 'en même temps' : `${p.sequentialReads} lectures en série`}</Text>
+    </Text>,
+  ])
 }
 
-/** Repositories this session touched come first; the others wait behind a fold (`p`). */
-export function ProjectsCard(E: El, all: RepoState[], used: string[], isOpen: boolean, onFold: () => void, onRefresh: () => void) {
-  const { Box, Text, Button } = E
+/** Repositories this session touched; the others wait behind a fold (`p`). Collisions come first. */
+export function ProjectsCard(E: El, width: number, all: RepoState[], used: string[], clash: Collision[], now: number, isOpen: boolean) {
+  const { Text } = E
   const repos = all.filter(r => used.includes(r.dir))
   const idle = all.filter(r => !used.includes(r.dir))
-  const level: Level = repos.some(r => r.behind > 0 || r.ahead > 0) ? 'warn' : 'ok'
+  const level: Level = clash.length > 0 ? 'alert' : repos.some(r => r.behind > 0 || r.ahead > 0) ? 'warn' : 'ok'
+  const value = clash.length ? `▲ ${clash.length}` : `${repos.length}${idle.length ? ` +${idle.length}` : ''}`
   const row = (r: RepoState) => (
     <Text wrap="truncate-end">
-      {r.name} <Text dimColor>{r.branch}</Text>
-      {r.dirty > 0 && <Text dimColor> · {r.dirty} modif</Text>}
-      {r.ahead > 0 && <Text color="warning"> ↑{r.ahead}</Text>}
-      {r.behind > 0 && <Text color="error"> ↓{r.behind}</Text>}
+      <Text bold>{r.name}</Text> <Text color="suggestion">{r.branch}</Text>
+      <Text dimColor>{r.dirty > 0 ? ` · ${r.dirty} modif` : ' · propre'}</Text>
+      {r.ahead > 0 && <Text color="warning"> · ↑{r.ahead}</Text>}
+      {r.behind > 0 && <Text color="error"> · ↓{r.behind}</Text>}
     </Text>
   )
-  const [first, ...rest] = repos
-  return Card(E, 'Projets', level, (
-    <Box>
-      {first ? row(first) : <Text dimColor>{all.length ? 'aucun touché' : 'lecture…'}</Text>}
-      <Text> </Text>
-      <Button key="refresh" plain dimColor hotkey="r" label="maj" onPress={onRefresh} />
-    </Box>
-  ), [
-    ...rest.map(row),
+  return Card(E, width, 'Projets', value, level, [
+    // Collisions (from Collision Guard): a file this session edited that another open session edited too.
+    ...clash.slice(0, 2).map(c => <Text color="error" wrap="truncate-end">▲ {c.file} · « {c.who} » {ageLabel(now - c.at)}</Text>),
+    ...(repos.length ? repos.map(row) : [<Text dimColor>{all.length ? 'aucun dépôt touché' : 'lecture…'}</Text>]),
     ...(isOpen ? idle.map(r => <Text dimColor wrap="truncate-end">{r.name} {r.branch}</Text>) : []),
-    idle.length > 0 ? <Button key="fold" plain dimColor hotkey="p" label={isOpen ? 'replier' : `+${idle.length} autres`} onPress={onFold} /> : null,
   ])
+}
+
+export type Keys = { isAuto: boolean; isKeepWarm: boolean; ho: Handoff | null; hasIdle: boolean; isOpen: boolean }
+export type KeyActions = { auto: () => void; keepWarm: () => void; handoff: () => void; resume: () => void; refresh: () => void; fold: () => void }
+
+/** The one legend line of keys, under the cards. */
+export function KeysLine(E: El, keys: Keys, on: KeyActions) {
+  const { Box, Text, Button } = E
+  const sep = (n: string) => <Text key={n} dimColor> · </Text>
+  return (
+    <Box flexWrap="wrap">
+      <Button key="auto" plain dimColor hotkey="a" label={keys.isAuto ? 'auto' : 'auto coupé'} onPress={on.auto} />
+      {sep('s1')}
+      <Button key="keepwarm" plain dimColor hotkey="k" label={keys.isKeepWarm ? 'arrêter le chaud' : 'garder au chaud'} onPress={on.keepWarm} />
+      {sep('s2')}
+      {keys.ho?.state === 'ready'
+        ? <Button key="continue" plain hotkey="c" label="repartir du handoff" onPress={on.resume} />
+        : <Button key="handoff" plain dimColor hotkey="h" label="handoff" onPress={on.handoff} />}
+      {sep('s3')}
+      <Button key="refresh" plain dimColor hotkey="r" label="dépôts" onPress={on.refresh} />
+      {keys.hasIdle ? sep('s4') : null}
+      {keys.hasIdle ? <Button key="fold" plain dimColor hotkey="p" label={keys.isOpen ? 'replier' : 'autres'} onPress={on.fold} /> : null}
+    </Box>
+  )
 }

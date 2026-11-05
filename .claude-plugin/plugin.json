@@ -1,6 +1,6 @@
 {
   "name": "compagnon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Panneau compagnon : bascule de modèle automatique sans perte de cache, contexte, forfait sur 7 jours, process bloqués, parallélisme, état des dépôts.",
   "author": {
     "name": "Johnjohnbei"
@@ -13,6 +13,12 @@
       "title": "Dépôts suivis",
       "description": "Chemins absolus des dépôts git à suivre, séparés par « ; ». Vide : le projet de la session seulement.",
       "default": ""
+    },
+    "coldGuardTokens": {
+      "type": "string",
+      "title": "Seuil de la garde de cache froid",
+      "description": "Taille de contexte (tokens, ex. 150000 ou 150k) au-delà de laquelle un envoi sur cache froid demande d'abord. 0 : jamais.",
+      "default": "150000"
     }
   }
 }
