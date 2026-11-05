@@ -1,0 +1,160 @@
+// Pure logic of the companion pane: no `$`, so the tests run it directly.
+import type { Advice, CacheInfo, CacheVerdict, Decision, Effort, Level, ParallelSummary, RepoState, Tier, ToolSpan } from '../types'
+
+const RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
+
+/** Model ids the pin sends through `turn.step` (aliases resolve on the engine side). */
+export const MODEL_OF: Record<Tier, string> = {
+  fable: 'claude-fable-5-1',
+  opus: 'claude-opus-5-5',
+  sonnet: 'claude-sonnet-5-5',
+  haiku: 'claude-haiku-5-5',
+}
+
+export const TIER_LABEL: Record<Tier, string> = { fable: 'Fable 5.1', opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5' }
+
+// First match wins, strongest need first. Sources: Anthropic model-config (Fable for ambiguous problems and
+// architecture, Opus for complex reasoning, Sonnet for daily coding, Haiku for simple tasks) and the former
+// rules of an earlier router kept here: upgrade freely, downgrade only on a small context, never route subagents.
+// ponytail: keyword rules, zero token (user choice 2026-11-05); a Haiku classifier if the hit rate disappoints.
+const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
+  { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
+  { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|plante|erreur/i },
+  { tier: 'opus', effort: 'medium', need: 'Fonctionnalité ou refonte', re: /refactor|refonte|fonctionnalit|feature|implément|\bmod\b|composant|migration|\bplan\b|maquette/i },
+  { tier: 'sonnet', effort: 'medium', need: 'Édition courante', re: /corrige|ajoute|modifie|texte|copie|tradui|\bdoc|tests?\b|lint|renomme|commit|push/i },
+  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi)(?=[\s,?:]|$)/i }, // JS \b is ASCII-only: never matches after « où »
+]
+
+/** The cache is per model: below this, dropping to a cheaper model still pays. */
+export const CACHE_KEEP_TOKENS = 40_000
+
+export const tierOf = (model: string): Tier =>
+  (['fable', 'opus', 'sonnet', 'haiku'] as const).find(t => model.toLowerCase().includes(t)) ?? 'opus'
+
+/** The model a request needs; null for a follow-up ("ok", "continue") or a slash command, which keep the model. */
+export function advise(text: string): Advice | null {
+  const ask = text.trim()
+  if (ask.length < 20 || ask.startsWith('/')) return null
+  const rule = RULES.find(r => r.re.test(ask)) ?? { tier: 'opus' as Tier, effort: 'medium' as Effort, need: 'Demande générale' }
+  return { tier: rule.tier, effort: rule.effort, need: rule.need, reason: `${rule.need} : ${TIER_LABEL[rule.tier]}, effort ${rule.effort}` }
+}
+
+/**
+ * Whether switching the main model now forfeits nothing. A prompt cache belongs to one model and cannot be copied
+ * (Anthropic prompt-caching doc: exact prefix match, no transfer), so a switch is free only when the cache is
+ * already cold (its TTL passed), was just rebuilt by a compaction, or is too small to matter.
+ * Figures come from the status line's `prompt_cache` (code.claude.com/docs/en/statusline), relayed by
+ * ~/.claude/hooks/statusline.js; without them we assume warm until a 1 h TTL has passed since the last turn.
+ */
+export function cacheState(cache: CacheInfo | null, now: number, lastTurnEnd: number, contextTokens: number): CacheVerdict {
+  const recache = cache?.recacheTokensIfCold ?? contextTokens
+  if (cache && cache.recacheTokensIfCold === null && cache.caching) return { isFree: true, why: 'compaction récente : le cache se reconstruit de toute façon', recache: 0 }
+  const expires = cache?.expiresAt ? cache.expiresAt * 1000 : lastTurnEnd > 0 ? lastTurnEnd + 3_600_000 : 0
+  if (cache && !cache.warm) return { isFree: true, why: 'cache déjà froid', recache }
+  if (expires > 0 && now >= expires) return { isFree: true, why: 'cache expiré pendant la pause', recache }
+  if (recache < CACHE_KEEP_TOKENS) return { isFree: true, why: `petit contexte (${Math.round(recache / 1000)} k), relecture négligeable`, recache }
+  return { isFree: false, why: `cache chaud de ${Math.round(recache / 1000)} k`, recache }
+}
+
+/**
+ * The automatic route of a request: switch the main loop when it is free, otherwise keep the warm cache and hand
+ * the work to a subagent on the right model (a subagent starts from a fresh context, so the main cache is untouched).
+ */
+export function route(advice: Advice, current: Tier, verdict: CacheVerdict): Decision {
+  if (advice.tier === current) return { action: 'keep', tier: current, effort: advice.effort, why: advice.reason }
+  if (verdict.isFree) return { action: 'switch', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : bascule vers ${TIER_LABEL[advice.tier]}` }
+  return { action: 'delegate', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : ${TIER_LABEL[current]} garde la main, travail confié à un sous-agent ${TIER_LABEL[advice.tier]}` }
+}
+
+/** Appended to the user's message (never to the system prompt, which would break the cache it protects). */
+export const delegationHint = (d: Decision, need: string): string =>
+  `\n\n[compagnon] Besoin détecté : ${need.toLowerCase()}. Pour ne pas perdre le cache de ce contexte, garde le modèle actuel pour piloter et confie l'exécution à un sous-agent avec model: "${d.tier}", en lui donnant un brief complet (fichiers, objectif, critères). Si la tâche est trop courte pour valoir un sous-agent, fais-la directement.`
+
+/** Usage thresholds used by ccusage and most status lines: green under 70 %, red from 90 %. */
+export const levelOf = (pct: number): Level => (pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok')
+
+export const bar = (pct: number, width: number): string => {
+  const full = Math.max(0, Math.min(width, Math.round((pct / 100) * width)))
+  return '█'.repeat(full) + '░'.repeat(width - full)
+}
+
+const TICKS = '▁▂▃▄▅▆▇█'
+export const sparkline = (values: number[]): string =>
+  values.map(v => TICKS[Math.max(0, Math.min(7, Math.floor((v / 100) * 7.99)))]).join('')
+
+export const ageLabel = (ms: number): string => {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s} s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} min`
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
+}
+
+export const resetLabel = (iso: string | undefined, now: number): string =>
+  iso ? `reset dans ${ageLabel(Date.parse(iso) - now)}` : 'reset inconnu'
+
+/** Local calendar day (Europe/Paris on this machine), the key of a daily sample. */
+export const dayKey = (now: number): string => new Date(now).toLocaleDateString('sv-SE')
+
+/** Peak of the 7-day window per local day. The 5-hour window is gone from the plan: not tracked. */
+export type DailySamples = Record<string, number>
+
+/** Keeps the day's peak, last 7 days only. */
+export function recordSample(samples: DailySamples, day: string, week: number): DailySamples {
+  const next = { ...samples, [day]: Math.max(samples[day] ?? 0, week) }
+  return Object.fromEntries(Object.entries(next).sort(([a], [b]) => a.localeCompare(b)).slice(-7))
+}
+
+/** The 7 days ending today, oldest first, 0 where nothing was sampled. */
+export const lastSevenDays = (samples: DailySamples, now: number): number[] =>
+  Array.from({ length: 7 }, (_, i) => samples[dayKey(now - (6 - i) * 86_400_000)] ?? 0)
+
+/** One spelling for a path: forward slashes, no trailing slash, lower case, `/c/x` read as `c:/x` (Git Bash). */
+export const normPath = (p: string): string =>
+  p.replace(/\\/g, '/').replace(/(^|[\s"'=])\/([a-z])\//gi, '$1$2:/').replace(/\/+$/, '').toLowerCase()
+
+/** The followed repositories a tool call touches: a path argument inside one, or a command naming one. */
+export function touchedRepos(input: Record<string, unknown>, dirs: string[]): string[] {
+  const values = Object.values(input).filter((v): v is string => typeof v === 'string').map(normPath)
+  return dirs.filter(d => {
+    const n = normPath(d)
+    // A hit is the path followed by nothing that would continue a folder name (`projet-a-old` is not `projet-a`).
+    const edge = new RegExp(`${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`)
+    return values.some(v => edge.test(v))
+  })
+}
+
+const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'LS'])
+
+/**
+ * How parallel the last turn was. A run of read-only calls that each waited for the previous one is work a
+ * single batched step (or independent subagents) would have done at once.
+ * ponytail: heuristic of our own, no tool measures this (web research 2026-11-05).
+ */
+export function summarizeParallel(spans: ToolSpan[]): ParallelSummary {
+  const sorted = [...spans].sort((a, b) => a.start - b.start)
+  const overlapped = sorted.filter(s => sorted.some(o => o !== s && o.start < s.end && s.start < o.end)).length
+  let run = 0
+  let longest = 0
+  sorted.forEach((s, i) => {
+    const prev = sorted[i - 1]
+    const isSequentialRead = READ_ONLY.has(s.tool) && (!prev || !READ_ONLY.has(prev.tool) || s.start >= prev.end)
+    run = READ_ONLY.has(s.tool) ? (isSequentialRead ? run + 1 : 1) : 0
+    longest = Math.max(longest, run)
+  })
+  return { total: sorted.length, overlapped, sequentialReads: longest, agents: sorted.filter(s => s.tool === 'Agent').length }
+}
+
+/** Parses `git status --porcelain=v2 --branch`. */
+export function parseStatus(name: string, out: string): Omit<RepoState, 'dir' | 'lastCommit'> {
+  const line = (key: string) => out.split('\n').find(l => l.startsWith(`# branch.${key} `))?.slice(`# branch.${key} `.length)
+  const ab = line('ab')?.match(/\+(\d+) -(\d+)/)
+  return {
+    name,
+    branch: line('head') ?? '?',
+    ahead: ab ? Number(ab[1]) : 0,
+    behind: ab ? Number(ab[2]) : 0,
+    dirty: out.split('\n').filter(l => /^[12u?] /.test(l)).length,
+    hasUpstream: line('upstream') !== undefined,
+  }
+}
