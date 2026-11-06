@@ -13,14 +13,14 @@ Une card bordée par sujet : le titre et la valeur clé dans la bordure du haut,
 | Parallélisme | lectures faites l'une après l'autre au dernier tour, à grouper ou déléguer |
 | Projets | branche, fichiers modifiés, commits à pousser ou en retard des dépôts touchés pendant la session, fichiers modifiés aussi par une autre session ouverte ; les autres dépôts suivis restent repliés |
 
-Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de suivi (contexte, forfait, objectif, process, parallélisme, projets). À partir de 84 colonnes, l'advisor est à côté du fil principal et les trois agents sont côte à côte ; en dessous, tout s'empile dans le même ordre.
+Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de suivi (contexte, forfait, objectif, process, parallélisme, projets). Un panneau à côté de la conversation ne dépasse pas 45 % de la largeur du terminal (Ctrl+X puis flèche gauche lui donne de la place). En dessous de 84 colonnes, les blocs se suivent en colonne, reliés par des flèches (▽ conseil, ▼ décide, ▼ délègue, ▲ résultats), et les trois agents restent côte à côte ; à partir de 84 colonnes, l'advisor passe à côté du fil principal. Chaque rôle a sa couleur : jaune le fil principal, magenta l'advisor, vert les décisions, bleu les agents. Une alerte ajoute ▲ devant la valeur du bloc, sans changer sa couleur.
 
 | Bloc | Ce qu'il montre | D'où ça vient |
 | --- | --- | --- |
 | Advisor | nombre d'appels, âge du dernier, part du coût des tours où il a été consulté (le « ~ » marque une estimation : la variation du coût de session inclut aussi les sous-agents) | `session.append`, coût de session |
 | Modèle | version lue dans l'identifiant renvoyé, cache, effort, versions vues par palier (alerte de 24 h quand un alias change), charge chargée avant la première parole (outils, mémoire, skills) et conversation | `turn.step`, `usage({ breakdown: 'summary' })` |
 | Décisions | palier de la dernière demande, couche qui a décidé (mots-clés, classifieur, défaut), action (garder, basculer, déléguer), décomptes par couche | journal des décisions |
-| Agents | `search`, `grep`, `audit` : en cours (durée), terminé (durée), échec ou inactif ; les autres agents sont comptés | `$.agent.list()` |
+| Agents | `search`, `grep`, `audit` en trois petites cards : ● en cours (durée), ✓ terminé (durée), ✕ échec, · inactif ; les autres agents sont comptés | `$.agent.list()` |
 | Journal, ligne d'état | les dernières décisions ; agents actifs, appels advisor, décisions, coût | état du mod |
 | Bandeau | une ligne au-dessus de la saisie : modèle, advisor, coût, contexte, agents | mêmes états |
 

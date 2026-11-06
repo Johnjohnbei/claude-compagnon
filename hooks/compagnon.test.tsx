@@ -299,10 +299,10 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   expect((await ui.find({ type: 'Text', text: /^╭─ Projets ─+ ▲ 1 ─╮$/ }))?.text).toMatch(/▲ 1/)
   // the chain: advisor, the main session with what it loads, the decision layer, the scouts, the journal, the status line
   for (const words of [
-    /^╭─ Advisor ─+ 2 appels ─╮$/, /^il y a 2 min$/, /~72 % du coût \(advisor\)/,
+    /^╭─ Advisor ─+ ▲ 2 appels ─╮$/, /^il y a 2 min$/, /~72 % du coût \(advisor\)/,
     /vus : Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5/, /^outils 28 k · skills 9 k · prompt 2 k$/,
     /^╭─ Décisions ─+ 2 ─╮$/, /mots-clés 1 · classifieur 1 · défaut 0/, /bascule sur ce palier/,
-    /^╭─ Agents ─+ 1\/3 ─╮$/, /^en cours 0:42$/, /^terminé 0:18$/, /^inactif$/,
+    /^╭─ search ─+╮$/, /^╭─ grep ─+╮$/, /^╭─ audit ─+╮$/, /^● 0:42$/, /^✓ 0:18$/, /^· inactif$/,
     /^consulté$/, /^Débogage : Opus, effort high$/,
     /agents \[2 actifs\] · advisor \[2 appels\] · décisions \[2\] · coût 0,29 \$/,
   ]) {

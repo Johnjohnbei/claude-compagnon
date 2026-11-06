@@ -9,6 +9,8 @@ import { SOURCE_NAME, TIER_NAME, ageLabel, costSummary, goalProgress, lastSevenD
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
 const COLOR: Record<Level, string> = { ok: 'success', warn: 'warning', alert: 'error' }
+/** One colour per role in the chain, as in the reference video: lead, advisor, decisions, agents (ANSI names: a theme cannot hide them). */
+const ROLE = { lead: 'yellow', advisor: 'magenta', decision: 'green', agents: 'blue' } as const
 const GAUGE = 10
 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
@@ -31,21 +33,26 @@ export const gauge = (pct: number, width = GAUGE): string => {
 
 /**
  * One card, `width` columns wide: `╭─ Title ──── value ─╮`, its lines between `│ … │`, then `╰───╯`.
- * The border stays quiet (dim) while all is well and takes the state's colour otherwise.
+ * The chain's blocks (role set) are drawn in their role's colour; the others stay quiet until a state needs a look.
  */
-function Card(E: El, width: number, title: string, value: string, level: Level, lines: RenderChildren[]) {
+function Card(E: El, width: number, title: string, value: string, level: Level, lines: RenderChildren[], role?: string, minWidth = 24) {
   const { Box, Text } = E
-  const w = Math.max(24, width)
-  const border = level === 'ok' ? undefined : COLOR[level]
-  const fill = Math.max(1, w - title.length - value.length - 8)
+  const w = Math.max(minWidth, width)
+  // The border carries the role's colour (the chain's blocks) or stays quiet and takes the state's colour (the other cards).
+  // On a role card an alert keeps the role's border and adds a marker before the value, in the state's colour.
+  const border = role ?? (level === 'ok' ? undefined : COLOR[level])
+  const isAlert = level !== 'ok' && role !== undefined
+  const shown = `${isAlert ? '▲ ' : ''}${value}`
+  const valueColor = isAlert ? COLOR[level] : border
+  const fill = Math.max(1, w - title.length - (shown === '' ? 6 : shown.length + 8))
   return (
     <Box flexDirection="column" width={w}>
       <Text wrap="truncate-end">
         <Text color={border} dimColor={!border}>╭─ </Text>
         <Text bold>{title}</Text>
-        <Text color={border} dimColor={!border}> {'─'.repeat(fill)} </Text>
-        <Text color={border} bold>{value}</Text>
-        <Text color={border} dimColor={!border}> ─╮</Text>
+        <Text color={border} dimColor={!border}> {'─'.repeat(fill)}{shown === '' ? '' : ' '}</Text>
+        {shown === '' ? null : <Text color={valueColor} bold>{shown}</Text>}
+        <Text color={border} dimColor={!border}>{shown === '' ? '─╮' : ' ─╮'}</Text>
       </Text>
       {lines.filter(Boolean).map(l => (
         <Box width={w}>
@@ -59,8 +66,7 @@ function Card(E: El, width: number, title: string, value: string, level: Level, 
   )
 }
 
-/** `warmLeft`: time the cache stays warm, keep-warm pings included (the status line's figure goes stale after one). */
-export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[] = []) {
+export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[] = [], role?: string) {
   const { Text } = E
   const current = pin ? pin.tier : tierOf(usage?.model ?? 'opus')
   // The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone.
@@ -85,7 +91,7 @@ export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision
       : d && d.action !== 'keep'
         ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_NAME[d.tier]}</Text>
         : null
-  return Card(E, width, 'Modèle', shown, level, [cacheLine, detail, ...extra])
+  return Card(E, width, 'Modèle', shown, level, [cacheLine, detail, ...extra], role)
 }
 
 /** The last things the mod decided or saw, newest last. */
@@ -113,17 +119,16 @@ const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : 
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'garde le modèle', switch: 'bascule sur ce palier', delegate: 'confie à un sous-agent' }
 /** The named scouts of ~/.claude/agents, and what each is for. */
-const SCOUTS: Array<[string, string]> = [['search', 'cartographie le dépôt'], ['grep', 'sites d’appel'], ['audit', 'revue du diff, worktree']]
+const SCOUTS: Array<[string, string, string]> = [['search', 'cartographie le dépôt', 'carte'], ['grep', 'sites d’appel', 'appels'], ['audit', 'revue du diff, worktree', 'revue']]
 const FINISHED = ['completed', 'failed', 'killed']
 
 /** One scout's state: running (and for how long), finished (and how long it ran), failed, or idle. The API gives no progress: no percentage. */
-function scoutState(list: AgentRow[], type: string, now: number): { text: string; level: Level } {
-  const mine = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)
-  const last = mine[0]
-  if (!last) return { text: 'inactif', level: 'ok' }
-  if (!FINISHED.includes(last.status)) return { text: `en cours ${clock(now - last.firstSeen)}`, level: 'ok' }
-  if (last.status !== 'completed') return { text: `échec ${clock((last.endedAt ?? now) - last.firstSeen)}`, level: 'warn' }
-  return { text: `terminé ${clock((last.endedAt ?? now) - last.firstSeen)}`, level: 'ok' }
+function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; level: Level; isRunning: boolean; isIdle: boolean } {
+  const last = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)[0]
+  if (!last) return { mark: '·', time: 'inactif', level: 'ok', isRunning: false, isIdle: true }
+  if (!FINISHED.includes(last.status)) return { mark: '●', time: clock(now - last.firstSeen), level: 'ok', isRunning: true, isIdle: false }
+  const time = clock((last.endedAt ?? now) - last.firstSeen)
+  return last.status === 'completed' ? { mark: '✓', time, level: 'ok', isRunning: false, isIdle: false } : { mark: '✕', time, level: 'warn', isRunning: false, isIdle: false }
 }
 
 /** The advisor: how often it was consulted and what that costs. Its advice is encrypted by the API: the call is visible, never its text. */
@@ -139,7 +144,7 @@ export function AdvisorCard(E: El, width: number, adv: AdvisorStat, turns: TurnC
       s.advisorTurns > 0
         ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">~{Math.round(s.advisorShare * 100)} % du coût (advisor)</Text>
         : null,
-    ])
+    ], ROLE.advisor)
 }
 
 /** The decision layer: which tier the last request got, from which layer, and what was done about it. */
@@ -154,33 +159,36 @@ export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto
       <Text wrap="truncate-end"><Text dimColor>action </Text>{ACTION_TEXT[last.action]}</Text>,
       <Text dimColor wrap="truncate-end">mots-clés {count('keywords')} · classifieur {count('classifier')} · défaut {count('default')}</Text>,
       !isAuto ? <Text dimColor>↳ choix automatique coupé</Text> : null,
-    ])
+    ], ROLE.decision)
 }
 
-/** The scouts (search, grep, audit): wide, three cards side by side; narrow, one card with a line each. Other agents are counted. */
+/** The scouts (search, grep, audit), three small cards side by side whatever the width. Other agents are counted. */
 export function SwarmCards(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean) {
   const { Box, Text } = E
   const others = agents.filter(a => !SCOUTS.some(([name]) => name === a.type) && !FINISHED.includes(a.status)).length
-  const states = SCOUTS.map(([name, role]) => ({ name, role, ...scoutState(agents, name, now) }))
   const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'autre agent', 'autres agents')} en cours</Text> : null
-  if (!isWide) {
-    const live = states.filter(s => s.text.startsWith('en cours')).length
-    return Card(E, width, 'Agents', `${live}/${SCOUTS.length}`, states.some(s => s.level === 'warn') ? 'warn' : 'ok', [
-      ...states.map(s => (
-        <Text wrap="truncate-end"><Text bold>{s.name.padEnd(7)}</Text><Text color={s.level === 'ok' ? undefined : COLOR[s.level]} dimColor={s.text === 'inactif'}>{s.text}</Text></Text>
-      )),
-      note,
-    ])
-  }
-  const each = Math.floor((width - 2) / SCOUTS.length)
+  const each = Math.floor((width - (SCOUTS.length - 1)) / SCOUTS.length)
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" gap={1}>
-        {states.map(s => Card(E, each, s.name, s.text, s.level, [<Text dimColor wrap="truncate-end">{s.role}</Text>]))}
+        {SCOUTS.map(([name, role, short]) => {
+          const s = scoutState(agents, name, now)
+          return Card(E, each, name, '', 'ok', [
+            <Text color={s.level === 'ok' ? undefined : COLOR[s.level]} dimColor={s.isIdle} wrap="truncate-end">{s.mark} {s.time}</Text>,
+            <Text dimColor wrap="truncate-end">{isWide ? role : short}</Text>,
+          ], ROLE.agents, 12)
+        })}
       </Box>
       {note}
     </Box>
   )
+}
+
+/** A link between two blocks of the chain, one line: ▽ advice, ▼ work handed down, ▲ results coming back. */
+function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: string) {
+  const { Text } = E
+  const arrow = kind === 'advice' ? '▽' : kind === 'work' ? '▼' : '▲'
+  return <Text dimColor wrap="truncate-end">{' '.repeat(Math.floor(width / 2))}{arrow} {label}</Text>
 }
 
 /** The bottom line: what is running, the advisor's calls, the decisions, the cost. */
@@ -218,7 +226,7 @@ export function Schema(E: El, s: SchemaInput) {
     fixed.length > 0 ? <Text wrap="truncate-end"><Text dimColor>charge </Text>{k(fixed.reduce((n, p) => n + p.tokens, 0))}<Text dimColor>{messages ? ` · conversation ${k(messages.tokens)}` : ''}</Text></Text> : null,
     fixed.length > 0 ? <Text dimColor wrap="truncate-end">{[...fixed].slice(0, 3).map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text> : null,
   ]
-  const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra)
+  const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra, ROLE.lead)
   const advisor = AdvisorCard(E, isWide ? leftW : total, s.advisor, s.turns, s.now)
   const decisions = DecisionCard(E, mainW, s.routes, s.isAuto)
   return (
@@ -229,10 +237,18 @@ export function Schema(E: El, s: SchemaInput) {
           <Box flexDirection="column" width={rightW}>{main}{decisions}</Box>
         </Box>
       ) : (
-        <Box flexDirection="column">{advisor}{main}{decisions}</Box>
+        <Box flexDirection="column">
+          {advisor}
+          {Link(E, total, 'advice', 'conseil')}
+          {main}
+          {Link(E, total, 'work', 'décide')}
+          {decisions}
+          {Link(E, total, 'work', 'délègue')}
+        </Box>
       )}
       {isWide ? <Text dimColor>  ↓ sous-agents</Text> : null}
       {SwarmCards(E, total, s.agents, s.now, isWide)}
+      {isWide ? null : Link(E, total, 'back', 'résultats')}
       {JournalCard(E, total, s.journal)}
       {StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns)}
     </Box>
