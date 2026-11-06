@@ -26,6 +26,8 @@ Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de s
 
 Le conseil de l'advisor est chiffré par l'API : seul le nombre d'appels est visible, jamais son texte ni les jetons qu'il lit. Il n'y a pas de pourcentage de progression pour les agents : l'API n'en donne pas, la durée écoulée la remplace.
 
+`/compagnon charge` imprime ce que la session charge avant la première parole, source par source : fichiers de mémoire avec leur chemin et leurs jetons, skills par plugin, agents, commandes et outils MCP par serveur. C'est la mesure à lancer avant d'alléger quoi que ce soit.
+
 `/compagnon` rouvre le panneau, `/compagnon keepwarm [heures|off]` règle le maintien au chaud, `/compagnon handoff` demande un handoff.
 Touches dans le panneau : `a` coupe ou réactive la bascule automatique, `k` garde le cache au chaud 2 h (ou l'arrête), `h` demande un handoff, `c` efface la session et repart du handoff prêt, `r` relit les dépôts, `p` déplie ou replie les dépôts non touchés.
 

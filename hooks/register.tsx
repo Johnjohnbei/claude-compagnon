@@ -6,7 +6,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, RouteRecord, SeenModels, TaskRow, Tier, Usage } from '../types'
 import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard, Schema } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, adviseClassified, cacheState, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
+import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, adviseClassified, cacheState, chargeReport, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -232,7 +232,7 @@ export const register: Register = (on, options) => {
   if (guardOption !== '' && Number.isFinite(Number(guardOption.replace(/k$/i, '000')))) coldGuardTokens = Number(guardOption.replace(/k$/i, '000'))
   on('session.start', async ($, e, next) => {
     await initGuards($)
-    await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff, decisions)', argumentHint: '[keepwarm [h|off] | handoff | decisions]' })
+    await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff, decisions, charge)', argumentHint: '[keepwarm [h|off] | handoff | decisions | charge]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void refreshRepos($)
     void refreshUsage($)
@@ -261,6 +261,10 @@ export const register: Register = (on, options) => {
       const hours = arg === 'off' ? null : Number(arg) > 0 ? Number(arg) : 2
       await setKeepWarm($, hours)
       return { text: hours ? `Cache maintenu au chaud ${hours} h : un ping avant chaque expiration, arrêt s’il réécrit au lieu de lire.` : 'Maintien du cache coupé.' }
+    }
+    if (verb === 'charge') {
+      const full = (await $.session.usage({ breakdown: 'full' })) as { context?: { breakdown?: unknown } }
+      return { text: chargeReport(full.context?.breakdown) }
     }
     if (verb === 'decisions') return { text: routeReport(((await $.store.get('routeLog')) ?? []) as RouteRecord[]) }
     if (verb === 'handoff') {

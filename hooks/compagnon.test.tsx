@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger } from '../types'
-import { advise, adviseClassified, cacheState, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, adviseClassified, cacheState, chargeReport, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -399,4 +399,38 @@ test('wide pane: the advisor sits beside the main session, the three scouts side
   }
   expect((await ui.find({ type: 'Text', text: /↓ sous-agents/ }))?.text).toMatch(/↓ sous-agents/)
   await ui.unmount()
+})
+
+test('the load report names the heavy sources: memory files by path, skills by plugin, agents, commands, MCP by server', async () => {
+  const breakdown = {
+    categories: [
+      { name: 'System tools', tokens: 15818, kind: 'used' },
+      { name: 'Memory files', tokens: 15757, kind: 'used' },
+      { name: 'Skills', tokens: 9451, kind: 'used' },
+      { name: 'Messages', tokens: 13092, kind: 'used' },
+      { name: 'Free space', tokens: 907516, kind: 'free' },
+    ],
+    memoryFiles: [{ path: '/p/RTK.md', type: 'Project', tokens: 151 }, { path: '/p/CLAUDE.md', type: 'Project', tokens: 15606 }],
+    skills: { totalSkills: 3, tokens: 161, skillFrontmatter: [
+      { name: 'a', source: 'userSettings', tokens: 101 },
+      { name: 'brand-voice:x', source: 'plugin', pluginName: 'brand-voice', tokens: 36 },
+      { name: 'brand-voice:y', source: 'plugin', pluginName: 'brand-voice', tokens: 24 },
+    ] },
+    agents: [{ agentType: 'brand-voice:z', source: 'plugin', tokens: 404 }, { agentType: 'search', source: 'userSettings', tokens: 300 }],
+    slashCommands: { totalCommands: 65, tokens: 919 },
+    mcpTools: [{ server: 'supabase', tokens: 800 }, { name: 'github', tokens: 500 }, { server: 'supabase', tokens: 200 }],
+  }
+  const report = chargeReport(breakdown)
+  expect(report.split('\n')[0]).toBe('Charge au démarrage : 41,0 k jetons, plus la conversation 13,1 k jetons.')
+  expect(report).toContain('Memory files 15,8 k')
+  // the heaviest memory file comes first, with its path
+  expect(report.indexOf('15,6 k')).toBeLessThan(report.indexOf('151'))
+  expect(report).toContain('/p/CLAUDE.md')
+  expect(report).toContain('Skills (3, 161), par origine : userSettings 101 · brand-voice 60.')
+  expect(report).toContain('Agents (2, 704), par origine : plugin 404 · userSettings 300.')
+  expect(report).toContain('Outils MCP (3, 1,5 k), par serveur : supabase 1,0 k · github 500.')
+  expect(report).toContain('Commandes : 65 (919).')
+  // a shape it does not know never throws
+  expect(chargeReport(undefined)).toBe('Aucune mesure : le moteur n’a pas renvoyé de détail de contexte.')
+  expect(chargeReport({ categories: [{ name: 'Skills', tokens: 10, kind: 'used' }], memoryFiles: 'oops', skills: null, mcpTools: [null, 3] })).toContain('Charge au démarrage : 10 jetons.')
 })
