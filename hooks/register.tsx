@@ -6,7 +6,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, TaskRow, Usage } from '../types'
 import { ContextCard, GoalCard, KeysLine, ModelCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { MODEL_OF, advise, cacheState, dayKey, delegationHint, needsColdGuard, normPath, parseStatus, recordSample, route, summarizeParallel, tierOf, touchedRepos, ttlMs, type DailySamples } from './logic'
+import { advise, cacheState, dayKey, delegationHint, needsColdGuard, normPath, parseStatus, recordSample, route, summarizeParallel, supportsAlias, tierOf, touchedRepos, ttlMs, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -36,6 +36,14 @@ const TICK_MS = 15_000
 const REPOS_MS = 60_000
 
 type $ = EngineInterface
+
+let aliasSupport: Promise<boolean> | null = null
+/** Asked once: the engine version does not change during a session. A failed read counts as no support, said once. */
+const isAliasSupported = ($: $) =>
+  (aliasSupport ??= $.session.version().then(supportsAlias, () => false).then(async ok => {
+    if (!ok) await quietly(() => $.ui.toast('compagnon : bascule de modèle coupée (Claude Code 2.1.309 minimum, ou version illisible).'))
+    return ok
+  }))
 
 const labelOf = (tool: string, input: Record<string, unknown>): string => {
   const s = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '')
@@ -266,7 +274,8 @@ export const register: Register = (on, options) => {
       await refreshCache($)
       const [u, p] = await Promise.all([read($, usage), read($, pin)])
       const current = p?.tier ?? tierOf(u?.model ?? (await $.session.model()))
-      const d = route(need, current, await verdictNow($))
+      const routed = route(need, current, await verdictNow($))
+      const d = (await isAliasSupported($)) ? routed : withoutPin(routed, current)
       await update($, decision, () => d)
       if (d.action === 'switch') await update($, pin, () => ({ tier: d.tier, effort: d.effort }))
       if (d.action === 'delegate') hint = delegationHint(d, need.need)
@@ -277,7 +286,7 @@ export const register: Register = (on, options) => {
   // The pin applies to the main loop only: subagents keep the model their definition names.
   on('turn.step', async function* ($, e, next) {
     const p = await read($, pin)
-    return yield* next(p && !e.agentId ? { ...e, model: MODEL_OF[p.tier], effort: p.effort } : e)
+    return yield* next(p && !e.agentId && (await isAliasSupported($)) ? { ...e, model: p.tier, effort: p.effort } : e)
   })
 
   on('tool.call', async ($, e, next) => {

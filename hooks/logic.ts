@@ -3,15 +3,37 @@ import type { Advice, CacheInfo, CacheVerdict, Collision, Decision, Effort, Ledg
 
 const RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
 
-/** Model ids the pin sends through `turn.step` (aliases resolve on the engine side). */
-export const MODEL_OF: Record<Tier, string> = {
-  fable: 'claude-fable-5-1',
-  opus: 'claude-opus-5-5',
-  sonnet: 'claude-sonnet-5-5',
-  haiku: 'claude-haiku-5-5',
+// The pin sends the tier name itself through `turn.step` (`model: 'opus'`): the engine resolves the alias, and
+// ANTHROPIC_DEFAULT_*_MODEL repoints it. No model id and no version is written in this mod, so a release changes nothing here.
+
+/** Tier names as shown. A version is never written here: it is read from the id the engine reports (`modelLabel`). */
+export const TIER_NAME: Record<Tier, string> = { fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }
+
+/** "5.5" out of "claude-opus-5-5" or "claude-sonnet-4-5-20250929"; null for an alias or an id with no version. */
+export const versionOf = (model: string): string | null =>
+  model.match(/-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?(?:\[1m\])?$/)?.slice(1).filter(Boolean).join('.') || null
+
+/** "Opus 5.5" for a resolved id, "Opus" for an alias. */
+export const modelLabel = (model: string): string => {
+  const version = versionOf(model)
+  return version ? `${TIER_NAME[tierOf(model)]} ${version}` : TIER_NAME[tierOf(model)]
 }
 
-export const TIER_LABEL: Record<Tier, string> = { fable: 'Fable 5.1', opus: 'Opus 5.5', sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5' }
+/** Engine version from which `turn.step` accepts an alias; before it the alias reaches the API as is and the request fails. */
+const ALIAS_MIN_VERSION = [2, 1, 309]
+
+/**
+ * Whether the engine accepts an alias in `turn.step`. `version` is what `$.session.version()` returns (a string or an
+ * object): the first x.y.z found in it is read. UNVERIFIED shape of that object: when no version can be read the answer
+ * is false, so a doubt switches the automatic pin off and never breaks a turn.
+ */
+export function supportsAlias(version: unknown): boolean {
+  const found = (typeof version === 'string' ? version : JSON.stringify(version) ?? '').match(/(\d+)\.(\d+)\.(\d+)/)
+  if (!found) return false
+  const have = found.slice(1).map(Number)
+  const diff = ALIAS_MIN_VERSION.findIndex((min, i) => have[i] !== min)
+  return diff === -1 || (have[diff] ?? 0) > (ALIAS_MIN_VERSION[diff] ?? 0)
+}
 
 // First match wins, strongest need first. Sources: Anthropic model-config (Fable for ambiguous problems and
 // architecture, Opus for complex reasoning, Sonnet for daily coding, Haiku for simple tasks) and the former
@@ -36,7 +58,7 @@ export function advise(text: string): Advice | null {
   const ask = text.trim()
   if (ask.length < 20 || ask.startsWith('/')) return null
   const rule = RULES.find(r => r.re.test(ask)) ?? { tier: 'opus' as Tier, effort: 'medium' as Effort, need: 'Demande générale' }
-  return { tier: rule.tier, effort: rule.effort, need: rule.need, reason: `${rule.need} : ${TIER_LABEL[rule.tier]}, effort ${rule.effort}` }
+  return { tier: rule.tier, effort: rule.effort, need: rule.need, reason: `${rule.need} : ${TIER_NAME[rule.tier]}, effort ${rule.effort}` }
 }
 
 /**
@@ -132,9 +154,13 @@ export const continuationPrompt = (path: string, pending: string): string =>
  */
 export function route(advice: Advice, current: Tier, verdict: CacheVerdict): Decision {
   if (advice.tier === current) return { action: 'keep', tier: current, effort: advice.effort, why: advice.reason }
-  if (verdict.isFree) return { action: 'switch', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : bascule vers ${TIER_LABEL[advice.tier]}` }
-  return { action: 'delegate', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : ${TIER_LABEL[current]} garde la main, travail confié à un sous-agent ${TIER_LABEL[advice.tier]}` }
+  if (verdict.isFree) return { action: 'switch', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : bascule vers ${TIER_NAME[advice.tier]}` }
+  return { action: 'delegate', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : ${TIER_NAME[current]} garde la main, travail confié à un sous-agent ${TIER_NAME[advice.tier]}` }
 }
+
+/** A switch the engine cannot take (no alias support) becomes a delegation: the work still reaches the right model. */
+export const withoutPin = (d: Decision, current: Tier): Decision =>
+  d.action === 'switch' ? { ...d, action: 'delegate', why: `${TIER_NAME[current]} garde la main (bascule indisponible sur ce moteur), travail confié à un sous-agent ${TIER_NAME[d.tier]}` } : d
 
 /** Appended to the user's message (never to the system prompt, which would break the cache it protects). */
 export const delegationHint = (d: Decision, need: string): string =>

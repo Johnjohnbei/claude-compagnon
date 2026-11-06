@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger } from '../types'
-import { advise, cacheState, collisionFor, collisionsWith, delegationHint, goalProgress, keepWarmDue, lastSevenDays, needsColdGuard, parseStatus, pingMissed, recordSample, route, summarizeParallel, touchedRepos, ttlMs } from './logic'
+import { advise, cacheState, collisionFor, collisionsWith, delegationHint, goalProgress, keepWarmDue, lastSevenDays, needsColdGuard, parseStatus, pingMissed, recordSample, modelLabel, route, summarizeParallel, supportsAlias, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -37,6 +37,35 @@ test('a switch happens only when it costs nothing', async () => {
   expect(route(need, 'opus', cacheState(null, NOW, NOW - 3_700_000, 150_000)).action).toBe('switch')
   // same tier: nothing to do
   expect(route({ ...need, tier: 'opus' }, 'opus', cacheState(warm(150_000), NOW, 0, 150_000)).action).toBe('keep')
+})
+
+test('a version is read from the model id, never written in the mod', async () => {
+  expect(versionOf('claude-opus-5-5')).toBe('5.5')
+  expect(versionOf('claude-fable-5-1')).toBe('5.1')
+  expect(versionOf('claude-sonnet-4-5-20250929')).toBe('4.5')
+  expect(versionOf('claude-sonnet-4-20250514')).toBe('4')
+  expect(versionOf('claude-opus-5-5[1m]')).toBe('5.5')
+  expect(versionOf('claude-3-5-sonnet-20241022')).toBe(null)
+  expect(versionOf('opus')).toBe(null)
+  expect(modelLabel('claude-haiku-5-5')).toBe('Haiku 5.5')
+  expect(modelLabel('sonnet')).toBe('Sonnet')
+})
+
+test('the alias pin needs engine 2.1.309, and a doubt never breaks a turn', async () => {
+  expect(supportsAlias('2.1.309')).toBe(true)
+  expect(supportsAlias('2.1.318 (Claude Code)')).toBe(true)
+  expect(supportsAlias({ version: '2.2.0', release: 'x', builtAt: '2026-11-01T10:00:00Z' })).toBe(true)
+  expect(supportsAlias('3.0.0')).toBe(true)
+  expect(supportsAlias('2.1.308')).toBe(false)
+  expect(supportsAlias({ version: '2.0.999' })).toBe(false)
+  expect(supportsAlias(undefined)).toBe(false)
+  expect(supportsAlias({ build: 'unknown' })).toBe(false)
+  // without alias support a switch becomes a delegation, the other actions are untouched
+  const need = advise('où est défini le hook useModuleEnabled ?')!
+  const free = route(need, 'opus', cacheState({ ...warm(150_000), warm: false }, NOW, 0, 150_000))
+  expect(free.action).toBe('switch')
+  expect(withoutPin(free, 'opus').action).toBe('delegate')
+  expect(withoutPin({ ...free, action: 'keep' }, 'opus').action).toBe('keep')
 })
 
 test('reads that waited for each other are flagged, batched ones are not', async () => {
@@ -144,7 +173,7 @@ const LIVE = Date.parse('2026-11-05T15:20:00Z')
 const STATE: Record<string, unknown> = {
   usage: { model: 'claude-opus-5-5', contextPct: 74, contextTokens: 148_000, contextWindow: 200_000, limits: [{ kind: 'seven_day', percentUsed: 41, resetsAt: '2026-11-08T09:00:00Z' }], costUsd: 0 },
   cache: { warm: true, caching: true, ttl: '1h', expiresAt: LIVE / 1000 + 2_520, recacheTokensIfCold: 148_000, hitRatio: 0.93 },
-  decision: { action: 'delegate', tier: 'sonnet', effort: 'medium', why: 'cache chaud de 148 k : Opus 5.5 garde la main, travail confié à un sous-agent Sonnet 5.5' },
+  decision: { action: 'delegate', tier: 'sonnet', effort: 'medium', why: 'cache chaud de 148 k : Opus garde la main, travail confié à un sous-agent Sonnet' },
   keepWarm: { until: LIVE + 7_200_000, pings: 2, lastPingAt: LIVE - 600_000, stopped: null },
   running: [{ id: 't1', tool: 'Bash', label: 'npx vitest run', start: LIVE - 150_000 }],
   agents: [{ id: 'a1', label: 'Survey cache keeper', type: 'general-purpose', status: 'running', firstSeen: LIVE - 200_000 }],
@@ -176,7 +205,7 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   on('clock.now', () => ({ value: LIVE }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet 5\.5/, /^2\/4$/, /ArkButton\.tsx · « refonte hub mobile »/, /Bash 2 min · 1 agent/, /148 k \/ 200 k/]) {
+  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet$/, /^2\/4$/, /ArkButton\.tsx · « refonte hub mobile »/, /Bash 2 min · 1 agent/, /148 k \/ 200 k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
   // a collision turns the Projets card's key value into ▲ 1

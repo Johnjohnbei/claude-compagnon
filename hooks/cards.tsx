@@ -4,7 +4,7 @@
 import type { Elements, RenderChildren } from 'claude-code'
 
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, Decision, Goal, Handoff, KeepWarm, Level, ParallelSummary, Pin, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
-import { TIER_LABEL, ageLabel, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
+import { TIER_NAME, ageLabel, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
@@ -58,6 +58,8 @@ function Card(E: El, width: number, title: string, value: string, level: Level, 
 export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean) {
   const { Text } = E
   const current = pin ? pin.tier : tierOf(usage?.model ?? 'opus')
+  // The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone.
+  const shown = usage && tierOf(usage.model) === current ? modelLabel(usage.model) : TIER_NAME[current]
   const level: Level = verdict.isCold || kw?.stopped ? 'warn' : 'ok'
   const cacheLine = verdict.isCold ? (
     <Text color="warning" wrap="truncate-end">cache froid · relit {k(verdict.recache)}</Text>
@@ -76,9 +78,9 @@ export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision
     : !isAuto
       ? <Text dimColor>↳ choix automatique coupé</Text>
       : d && d.action !== 'keep'
-        ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_LABEL[d.tier]}</Text>
+        ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_NAME[d.tier]}</Text>
         : null
-  return Card(E, width, 'Modèle', TIER_LABEL[current], level, [cacheLine, detail])
+  return Card(E, width, 'Modèle', shown, level, [cacheLine, detail])
 }
 
 export function ContextCard(E: El, width: number, usage: Usage | null, ho: Handoff | null) {
