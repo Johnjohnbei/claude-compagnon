@@ -3,8 +3,8 @@
 // line under the cards, not inside them.
 import type { Elements, RenderChildren } from 'claude-code'
 
-import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, Decision, Goal, Handoff, KeepWarm, Level, ParallelSummary, Pin, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
-import { TIER_NAME, ageLabel, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
+import type { AdvisorStat, AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Goal, Handoff, KeepWarm, Level, LogEntry, LogKind, ParallelSummary, Pin, RepoState, RunningTool, SeenModels, TaskRow, TurnCost, Usage, Waiting } from '../types'
+import { TIER_NAME, ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
@@ -16,6 +16,11 @@ const TOOL_LONG = 120_000
 const TASK_LONG = 600_000
 
 const k = (tokens: number) => `${Math.round(tokens / 1000)} k`
+const usd = (n: number) => `${n.toFixed(2).replace('.', ',')} $`
+const hhmm = (at: number) => new Date(at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const DAY = 86_400_000
+const PART_NAME: Record<string, string> = { 'System prompt': 'prompt', 'System tools': 'outils', 'MCP server instructions': 'MCP', 'Custom agents': 'agents', Skills: 'skills', Messages: 'messages', 'Memory files': 'mémoire' }
+const KIND_NAME: Record<LogKind, string> = { route: 'route', advisor: 'advisor', spawn: 'agent', release: 'modèle' }
 const AGENT_STATUS: Record<string, string> = { running: 'en cours', waiting: 'attend', failed: 'en échec', pending: 'en attente' }
 
 /** `▰▰▰▰▰▰▱▱▱▱`: a thin gauge. */
@@ -81,6 +86,65 @@ export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision
         ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_NAME[d.tier]}</Text>
         : null
   return Card(E, width, 'Modèle', shown, level, [cacheLine, detail])
+}
+
+/** The model ids behind the tiers (read from what the engine reported), the advisor's calls, and a release when an alias moved. */
+export function ModelsCard(E: El, width: number, seen: SeenModels, adv: AdvisorStat, journal: LogEntry[], now: number) {
+  const { Text } = E
+  const ids = (['fable', 'opus', 'sonnet', 'haiku'] as const).filter(t => seen[t]).map(t => modelLabel(seen[t] as string))
+  const release = [...journal].reverse().find(l => l.kind === 'release' && now - l.at < DAY)
+  return Card(E, width, 'Modèles', adv.calls > 0 ? `advisor ${adv.calls}` : '—', release ? 'warn' : 'ok', [
+    ids.length > 0 ? <Text wrap="truncate-end">{ids.join(' · ')}</Text> : <Text dimColor>versions lues après le premier tour</Text>,
+    adv.calls > 0 ? <Text dimColor wrap="truncate-end">↳ dernier appel il y a {ageLabel(now - adv.lastAt)} (conseil chiffré)</Text> : null,
+    release ? <Text color="warning" wrap="truncate-end">↳ nouvelle version : {release.text}</Text> : null,
+  ])
+}
+
+/** What the turns cost, and the share of the turns where the advisor was consulted: the figure that says whether it pays. */
+export function CostCard(E: El, width: number, turns: TurnCost[]) {
+  const { Text } = E
+  if (turns.length === 0) return Card(E, width, 'Coût', '…', 'ok', [<Text dimColor>après le premier tour</Text>])
+  const s = costSummary(turns)
+  const isHeavy = s.advisorTurns > 0 && s.advisorShare >= 0.5
+  return Card(E, width, 'Coût', usd(s.totalUsd), isHeavy ? 'warn' : 'ok', [
+    <Text wrap="truncate-end">{s.turns} tours <Text dimColor>· moy. {usd(s.avgUsd)}</Text></Text>,
+    s.advisorTurns > 0
+      ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">↳ advisor : {s.advisorTurns} tour{s.advisorTurns > 1 ? 's' : ''}, ~{usd(s.advisorUsd)} ({Math.round(s.advisorShare * 100)} %, estimation)</Text>
+      : null,
+  ])
+}
+
+/** What the session loads before the first word (tools, skills, agents, prompt): the figure a lighter CLAUDE.md moves. */
+export function LoadCard(E: El, width: number, parts: CtxPart[]) {
+  const { Text } = E
+  if (parts.length === 0) return Card(E, width, 'Charge', '…', 'ok', [<Text dimColor>après le premier tour</Text>])
+  const fixed = parts.filter(p => p.name !== 'Messages')
+  const messages = parts.find(p => p.name === 'Messages')
+  return Card(E, width, 'Charge', k(fixed.reduce((s, p) => s + p.tokens, 0)), 'ok', [
+    <Text wrap="truncate-end">{fixed.map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text>,
+    messages ? <Text dimColor>↳ conversation {k(messages.tokens)}</Text> : null,
+  ])
+}
+
+/** The last things the mod decided or saw, newest last. */
+export function JournalCard(E: El, width: number, list: LogEntry[]) {
+  const { Text } = E
+  return Card(E, width, 'Journal', `${list.length}`, 'ok', list.length === 0
+    ? [<Text dimColor>rien pour l’instant</Text>]
+    : list.slice(-6).map(l => (
+      <Text wrap="truncate-end">
+        <Text dimColor>{hhmm(l.at)} {KIND_NAME[l.kind].padEnd(7)}</Text>
+        <Text>{l.text}</Text>
+      </Text>
+    )))
+}
+
+/** The one-line band above the prompt: the figures that decide whether to look at the pane. */
+export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, contextPct: number | null, liveAgents: number) {
+  const { Text } = E
+  const level = contextPct === null ? 'ok' : levelOf(contextPct)
+  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `ctx ${Math.round(contextPct)} %`, liveAgents > 0 ? `agents ${liveAgents}` : null]
+  return <Text color={level === 'ok' ? undefined : COLOR[level]} dimColor={level === 'ok'} wrap="truncate-end">{parts.filter(Boolean).join(' · ')}</Text>
 }
 
 export function ContextCard(E: El, width: number, usage: Usage | null, ho: Handoff | null) {

@@ -13,6 +13,18 @@ Une card bordée par sujet : le titre et la valeur clé dans la bordure du haut,
 | Parallélisme | lectures faites l'une après l'autre au dernier tour, à grouper ou déléguer |
 | Projets | branche, fichiers modifiés, commits à pousser ou en retard des dépôts touchés pendant la session, fichiers modifiés aussi par une autre session ouverte ; les autres dépôts suivis restent repliés |
 
+Le panneau ajoute quatre cards et un bandeau :
+
+| Élément | Ce qu'il montre | D'où ça vient |
+| --- | --- | --- |
+| Modèles | la version derrière chaque palier, lue dans l'identifiant que le moteur renvoie ; les appels de l'advisor ; une alerte de 24 h quand un alias change de version | `turn.step`, `session.append` |
+| Coût | le coût des tours, avec la part des tours où l'advisor a été consulté (estimation : la variation du coût de session inclut aussi les sous-agents) | `session.measure`, coût de session |
+| Charge | ce que la session charge avant la première parole (outils, skills, agents, prompt) et la taille de la conversation | `usage({ breakdown: 'summary' })` |
+| Journal | les dernières décisions du mod : route, advisor, sous-agents, changements de version | état du mod |
+| Bandeau | une ligne au-dessus de la saisie : modèle, advisor, coût, contexte, agents | mêmes états |
+
+Le conseil de l'advisor est chiffré par l'API : seul le nombre d'appels est visible, jamais son texte ni les jetons qu'il lit.
+
 `/compagnon` rouvre le panneau, `/compagnon keepwarm [heures|off]` règle le maintien au chaud, `/compagnon handoff` demande un handoff.
 Touches dans le panneau : `a` coupe ou réactive la bascule automatique, `k` garde le cache au chaud 2 h (ou l'arrête), `h` demande un handoff, `c` efface la session et repart du handoff prêt, `r` relit les dépôts, `p` déplie ou replie les dépôts non touchés.
 
@@ -66,6 +78,7 @@ Le dépôt est privé : l'installation ne marche que pour un compte GitHub qui p
 Options (réglables dans `/config`, rangée du plugin) :
 
 - `projects` : chemins absolus des dépôts à suivre, séparés par `;`. Vide : le projet de la session seulement.
+- `showBand` : le bandeau d'une ligne au-dessus de la saisie (coché par défaut) ; décocher pour ne garder que le panneau.
 - `coldGuardTokens` : taille de contexte au-delà de laquelle un envoi sur cache froid demande d'abord (`150000` ou `150k`) ; `0` coupe la garde.
 
 ## Chiffres du cache

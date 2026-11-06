@@ -3,10 +3,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, TaskRow, Usage } from '../types'
-import { ContextCard, GoalCard, KeysLine, ModelCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
+import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, SeenModels, TaskRow, Usage } from '../types'
+import { Band, ContextCard, CostCard, GoalCard, JournalCard, KeysLine, LoadCard, ModelCard, ModelsCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { advise, cacheState, dayKey, delegationHint, needsColdGuard, normPath, parseStatus, recordSample, route, spawnModel, summarizeParallel, supportsAlias, tierOf, touchedRepos, ttlMs, withoutPin, type DailySamples } from './logic'
+import { TIER_NAME, advise, cacheState, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, recordSample, releaseOf, route, spawnModel, summarizeParallel, supportsAlias, tierOf, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -24,6 +24,12 @@ const repos = atom({ plugin: 'compagnon', key: 'repos' } as const, [], { shape: 
 const usedRepos = atom({ plugin: 'compagnon', key: 'usedRepos' } as const, [], { shape: 'v1' })
 const isProjectsOpen = atom({ plugin: 'compagnon', key: 'isProjectsOpen' } as const, false, { shape: 'v1' })
 const tick = atom({ plugin: 'compagnon', key: 'tick' } as const, 0, { shape: 'v1' })
+const journal = atom({ plugin: 'compagnon', key: 'journal' } as const, [], { shape: 'v1' })
+const costs = atom({ plugin: 'compagnon', key: 'costs' } as const, [], { shape: 'v1' })
+const costMark = atom({ plugin: 'compagnon', key: 'costMark' } as const, 0, { shape: 'v1' })
+const advisor = atom({ plugin: 'compagnon', key: 'advisor' } as const, { calls: 0, lastAt: 0, pending: 0 }, { shape: 'v1' })
+const ctxParts = atom({ plugin: 'compagnon', key: 'ctxParts' } as const, [], { shape: 'v1' })
+const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v1' })
 // The guards' state, owned by guards.ts: declared again here because the state scan reads each module alone.
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
@@ -54,6 +60,8 @@ const labelOf = (tool: string, input: Record<string, unknown>): string => {
 let reposAt = 0
 /** Context size over which a send on a cold cache asks first (`coldGuardTokens` option; 0 = never). */
 let coldGuardTokens = 150_000
+/** The band above the prompt: on unless the `showBand` option is switched off. */
+let isBandShown = true
 const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
 /** The panel's bookkeeping never fails a prompt or a tool call: a broken update is dropped, the work goes on. */
@@ -164,8 +172,45 @@ async function refreshRepos($: $) {
   await update($, repos, () => rows.filter(r => r !== null))
 }
 
+/** One line of the session journal. */
+async function note($: $, kind: LogKind, text: string) {
+  const at = await $.clock.now()
+  await update($, journal, list => pushLog(list, { at, kind, text }))
+}
+
+/** The ids the engine reported, kept across sessions: an id that changes for a tier is a release, said once. */
+let seenNow: SeenModels | null = null
+async function trackModel($: $, model: unknown) {
+  if (typeof model !== 'string' || model === '') return
+  seenNow ??= ((await $.store.get('seenModels')) ?? {}) as SeenModels
+  const learned = releaseOf(seenNow, model)
+  if (learned.seen === seenNow) return
+  seenNow = learned.seen
+  await $.store.set('seenModels', seenNow)
+  await update($, seen, () => learned.seen)
+  if (!learned.changed) return
+  const { tier, from, to } = learned.changed
+  const change = `${TIER_NAME[tier]} ${versionOf(from) ?? from} → ${versionOf(to) ?? to}`
+  await note($, 'release', change)
+  await $.ui.toast(`compagnon : nouvelle version, ${change}`)
+}
+
+/** At a main-loop turn's end: what the turn cost (the cost figure's move), and what the context holds. */
+async function recordTurn($: $) {
+  const [u, mark, adv, p] = await Promise.all([read($, usage), read($, costMark), read($, advisor), read($, pin)])
+  if (!u) return
+  const at = await $.clock.now()
+  const usdMoved = costDelta(mark, u.costUsd)
+  await update($, costMark, () => u.costUsd)
+  if (usdMoved > 0 || adv.pending > 0) await update($, costs, list => [...list, { at, usd: usdMoved, tier: p?.tier ?? tierOf(u.model), advisorCalls: adv.pending }].slice(-200))
+  await update($, advisor, a => ({ ...a, pending: 0 }))
+  const full = (await $.session.usage({ breakdown: 'summary' })) as { context?: { breakdown?: { categories?: Array<{ name: string; tokens: number; kind?: string }> } } }
+  await update($, ctxParts, () => contextParts(full.context?.breakdown?.categories ?? []))
+}
+
 export const register: Register = (on, options) => {
   projects = String(options.projects ?? '').split(';').map(p => p.trim()).filter(Boolean)
+  isBandShown = isOptionOn(options.showBand)
   const guardOption = String(options.coldGuardTokens ?? '').trim()
   if (guardOption !== '' && Number.isFinite(Number(guardOption.replace(/k$/i, '000')))) coldGuardTokens = Number(guardOption.replace(/k$/i, '000'))
   on('session.start', async ($, e, next) => {
@@ -174,6 +219,10 @@ export const register: Register = (on, options) => {
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void refreshRepos($)
     void refreshUsage($)
+    void quietly(async () => {
+      const known = ((await $.store.get('seenModels')) ?? {}) as SeenModels
+      await update($, seen, () => known)
+    })
     // ponytail: one 15 s poll for ages, agents and usage (all free calls); a reload drops it and starts another.
     void (async () => {
       for (;;) {
@@ -277,6 +326,7 @@ export const register: Register = (on, options) => {
       const routed = route(need, current, await verdictNow($))
       const d = (await isAliasSupported($)) ? routed : withoutPin(routed, current)
       await update($, decision, () => d)
+      await note($, 'route', d.why)
       if (d.action === 'switch') await update($, pin, () => ({ tier: d.tier, effort: d.effort }))
       if (d.action === 'delegate') hint = delegationHint(d, need.need)
     })
@@ -286,12 +336,27 @@ export const register: Register = (on, options) => {
   // The pin applies to the main loop only: subagents keep the model their definition names.
   on('turn.step', async function* ($, e, next) {
     const p = await read($, pin)
-    return yield* next(p && !e.agentId && (await isAliasSupported($)) ? { ...e, model: p.tier, effort: p.effort } : e)
+    const result = yield* next(p && !e.agentId && (await isAliasSupported($)) ? { ...e, model: p.tier, effort: p.effort } : e)
+    await quietly(() => trackModel($, (result as { usage?: { model?: unknown } } | undefined)?.usage?.model))
+    return result
   })
+
+  // The advisor's calls show in the conversation as a server tool use; its advice is encrypted, so only the call is counted.
+  on('session.append', async ($, e, next) => {
+    const content = (e as unknown as { message?: { content?: unknown } }).message?.content
+    if (Array.isArray(content) && content.some((b: { type?: string; name?: string }) => b.type === 'server_tool_use' && b.name === 'advisor'))
+      await quietly(async () => {
+        const at = await $.clock.now()
+        await update($, advisor, a => ({ calls: a.calls + 1, lastAt: at, pending: a.pending + 1 }))
+        await note($, 'advisor', 'consulté')
+      })
+    return next(e)
+  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the row is stored as it is
 
   // The delegation the router asked for (see delegationHint) holds even when Claude leaves the model out of the call.
   on('agent.spawn', async ($, e, next) => {
     const model = spawnModel(await read($, decision), e)
+    await quietly(() => note($, 'spawn', `${e.subagentType}${model ? ` imposé ${TIER_NAME[model]}` : e.model ? ` ${e.model}` : ''}`))
     return next(model ? { ...e, model } : e)
   }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the subagent starts as asked
 
@@ -380,9 +445,22 @@ export const register: Register = (on, options) => {
     const list = await read($, spans)
     await update($, parallel, () => summarizeParallel(list))
     await Promise.all([refreshUsage($), refreshAgents($), refreshCache($)])
+    await quietly(() => recordTurn($))
     if ((await $.clock.now()) - reposAt > REPOS_MS) await refreshRepos($)
     return done
   })
+
+  // The band above the prompt: one line, the figures that say whether to open the pane.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+    if (!isBandShown) return null
+    const E = $.ui.resolve(e)
+    await read($, tick)
+    const [u, p, adv, turnCosts, ag] = await Promise.all([read($, usage), read($, pin), read($, advisor), read($, costs), read($, agents)])
+    const label = p ? TIER_NAME[p.tier] : u ? modelLabel(u.model) : 'compagnon'
+    const total = turnCosts.reduce((s: number, t: { usd: number }) => s + t.usd, 0)
+    const live = ag.filter((a: AgentRow) => a.status !== 'completed' && a.status !== 'killed').length
+    return Band(E, label, adv, total, u ? u.contextPct : null, live)
+  }).catch(() => undefined) // own failure: no band, never a broken prompt area
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const E = $.ui.resolve(e)
@@ -396,6 +474,7 @@ export const register: Register = (on, options) => {
     const samples = ((await $.store.get('weekPeaks')) ?? {}) as DailySamples
     const [used, isOpen, kw, clash] = await Promise.all([read($, usedRepos), read($, isProjectsOpen), read($, keepWarm), read($, collisions)])
     const [ho, g, taskList, verdict] = await Promise.all([read($, handoff), read($, goal), read($, tasks), verdictNow($)])
+    const [log, turnCosts, adv, parts, seenIds] = await Promise.all([read($, journal), read($, costs), read($, advisor), read($, ctxParts), read($, seen)])
     const width = Math.min(64, e.props.bodyColumns)
     const ttl = ttlMs(c)
     // The countdown counts a keep-warm ping too: the status line's expiry is stale after one.
@@ -406,12 +485,16 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {ModelCard(E, width, u, d, p, c, verdict, kw, warmLeft, ttl, isAuto)}
+        {ModelsCard(E, width, seenIds, adv, log, now)}
+        {CostCard(E, width, turnCosts)}
         {ContextCard(E, width, u, ho)}
+        {LoadCard(E, width, parts)}
         {PlanCard(E, width, u, samples, now)}
         {GoalCard(E, width, g, taskList, now)}
         {ProcessCard(E, width, now, run, bg, ag, w, id => void stopTask($, id), id => $.ui.view({ agentId: id }))}
         {ParallelCard(E, width, par)}
         {ProjectsCard(E, width, rp, used, clash, now, isOpen)}
+        {JournalCard(E, width, log)}
         {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen }, {
           auto: async () => {
             await $.store.set('auto', !isAuto)

@@ -24,6 +24,18 @@ export type TaskRow = { id: string; subject: string; status: 'pending' | 'in_pro
 /** The session's goal (`/goal <condition>` or ProposeGoal), measured on the native task list. */
 export type Goal = { condition: string; startedAt: number }
 
+/** One line of the session journal: what the mod decided or saw, newest last. */
+export type LogKind = 'route' | 'advisor' | 'spawn' | 'release'
+export type LogEntry = { at: number; kind: LogKind; text: string }
+/** One main-loop turn: the session cost figure moved by `usd` since the previous turn end (an estimate, subagents and advisor included). */
+export type TurnCost = { at: number; usd: number; tier: Tier; advisorCalls: number }
+/** Advisor consultations seen in the conversation; `pending` counts those of the turn in progress. The advice itself is encrypted. */
+export type AdvisorStat = { calls: number; lastAt: number; pending: number }
+/** One category of what the context holds, from `$.session.usage({ breakdown })`. */
+export type CtxPart = { name: string; tokens: number }
+/** The model id last seen for each tier, kept across sessions: an id that changes is a release. */
+export type SeenModels = Partial<Record<Tier, string>>
+
 export type ToolSpan = { tool: string; start: number; end: number }
 export type RunningTool = { id: string; tool: string; label: string; start: number }
 export type ParallelSummary = { total: number; overlapped: number; sequentialReads: number; agents: number }
@@ -68,6 +80,12 @@ declare module 'claude-code' {
       tasks: Shaped<TaskRow[]>
       goal: Shaped<Goal | null>
       isWorking: Shaped<boolean>
+      journal: Shaped<LogEntry[]>
+      costs: Shaped<TurnCost[]>
+      costMark: Shaped<number>
+      advisor: Shaped<AdvisorStat>
+      ctxParts: Shaped<CtxPart[]>
+      seen: Shaped<SeenModels>
     }
   }
 }

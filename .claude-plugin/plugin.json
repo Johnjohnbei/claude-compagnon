@@ -1,6 +1,6 @@
 {
   "name": "compagnon",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Panneau compagnon : bascule de modèle automatique sans perte de cache, contexte, forfait sur 7 jours, process bloqués, parallélisme, état des dépôts.",
   "author": {
     "name": "Johnjohnbei"
@@ -13,6 +13,12 @@
       "title": "Dépôts suivis",
       "description": "Chemins absolus des dépôts git à suivre, séparés par « ; ». Vide : le projet de la session seulement.",
       "default": ""
+    },
+    "showBand": {
+      "type": "boolean",
+      "title": "Bandeau au-dessus de la saisie",
+      "description": "Une ligne de chiffres (modèle, advisor, coût, contexte, agents) au-dessus de la zone de saisie. Décocher pour ne garder que le panneau.",
+      "default": true
     },
     "coldGuardTokens": {
       "type": "string",

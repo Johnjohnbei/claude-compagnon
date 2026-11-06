@@ -1,5 +1,5 @@
 // Pure logic of the companion pane: no `$`, so the tests run it directly.
-import type { Advice, CacheInfo, CacheVerdict, Collision, Decision, Effort, Ledger, Level, ParallelSummary, RepoState, TaskRow, Tier, ToolSpan } from '../types'
+import type { Advice, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Effort, Ledger, Level, LogEntry, ParallelSummary, RepoState, SeenModels, TaskRow, Tier, ToolSpan, TurnCost } from '../types'
 
 const RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
 
@@ -264,3 +264,36 @@ export function parseStatus(name: string, out: string): Omit<RepoState, 'dir' | 
     hasUpstream: line('upstream') !== undefined,
   }
 }
+
+/** The journal keeps the last dozen lines: it answers "what just happened", not "what happened today". */
+export const LOG_MAX = 12
+export const pushLog = (list: LogEntry[], entry: LogEntry): LogEntry[] => [...list, { ...entry, text: entry.text.replace(/\s+/g, ' ').slice(0, 100) }].slice(-LOG_MAX)
+
+/** What the session cost moved by between two readings; never negative (a reload reads a lower figure). */
+export const costDelta = (mark: number, now: number): number => Math.max(0, now - mark)
+
+/** Turns and what they cost; `advisor*` count the turns where the advisor was consulted (an estimate: the figure also holds subagents). */
+export function costSummary(turns: TurnCost[]): { turns: number; totalUsd: number; avgUsd: number; advisorTurns: number; advisorUsd: number; advisorShare: number } {
+  const totalUsd = turns.reduce((s, t) => s + t.usd, 0)
+  const withAdvisor = turns.filter(t => t.advisorCalls > 0)
+  const advisorUsd = withAdvisor.reduce((s, t) => s + t.usd, 0)
+  return { turns: turns.length, totalUsd, avgUsd: turns.length ? totalUsd / turns.length : 0, advisorTurns: withAdvisor.length, advisorUsd, advisorShare: totalUsd > 0 ? advisorUsd / totalUsd : 0 }
+}
+
+/** The categories the context really holds (what is loaded, not free space, the compaction buffer or deferred tools), largest first. */
+export const contextParts = (categories: Array<{ name: string; tokens: number; kind?: string }>): CtxPart[] =>
+  categories.filter(c => c.kind === 'used' && c.tokens > 0).map(c => ({ name: c.name, tokens: c.tokens })).sort((a, b) => b.tokens - a.tokens)
+
+/**
+ * Learns the id behind a tier from a model id the engine reported. `changed` is set when that tier already had another id:
+ * an alias now resolves to a new release. An id that names no tier teaches nothing; an unseen tier is learned silently.
+ */
+export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; changed: { tier: Tier; from: string; to: string } | null } {
+  const tier = (['fable', 'opus', 'sonnet', 'haiku'] as const).find(t => model.toLowerCase().includes(t))
+  if (!tier || seen[tier] === model) return { seen, changed: null }
+  const from = seen[tier]
+  return { seen: { ...seen, [tier]: model }, changed: from ? { tier, from, to: model } : null }
+}
+
+/** A boolean option, whichever way the engine hands it (a boolean or the text "true"/"false"): on unless it says off. */
+export const isOptionOn = (value: unknown): boolean => value !== false && String(value ?? '').trim().toLowerCase() !== 'false'

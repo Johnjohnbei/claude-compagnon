@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger } from '../types'
-import { advise, cacheState, collisionFor, collisionsWith, delegationHint, goalProgress, keepWarmDue, lastSevenDays, needsColdGuard, parseStatus, pingMissed, recordSample, modelLabel, route, spawnModel, summarizeParallel, supportsAlias, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, cacheState, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsColdGuard, parseStatus, pingMissed, pushLog, recordSample, releaseOf, route, spawnModel, summarizeParallel, supportsAlias, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -83,6 +83,52 @@ test('a delegation fills the model of a general-purpose subagent, and nothing el
   expect(spawnModel({ ...delegate, action: 'switch' }, { subagentType: 'general-purpose' })).toBe(undefined)
   expect(spawnModel({ ...delegate, action: 'keep' }, { subagentType: 'general-purpose' })).toBe(undefined)
   expect(spawnModel(null, { subagentType: 'general-purpose' })).toBe(undefined)
+})
+
+test('the journal keeps the last dozen lines, each cut short', async () => {
+  let list: Array<{ at: number; kind: 'route'; text: string }> = []
+  for (let i = 0; i < LOG_MAX + 5; i++) list = pushLog(list, { at: i, kind: 'route', text: `ligne ${i}` })
+  expect(list.length).toBe(LOG_MAX)
+  expect(list[0]?.text).toBe('ligne 5')
+  expect(pushLog([], { at: 1, kind: 'route', text: `a\n${'x'.repeat(300)}` })[0]?.text.length).toBe(100)
+})
+
+test('a turn costs what the session figure moved by, and the advisor share is read off the turns it joined', async () => {
+  expect(Math.round(costDelta(1.2, 1.5) * 100)).toBe(30)
+  expect(costDelta(1.5, 0.2)).toBe(0) // a reload reads lower: never a negative cost
+  const turns = [
+    { at: 1, usd: 0.08, tier: 'sonnet' as const, advisorCalls: 0 },
+    { at: 2, usd: 0.21, tier: 'sonnet' as const, advisorCalls: 1 },
+  ]
+  const s = costSummary(turns)
+  expect(s.turns).toBe(2)
+  expect(Math.round(s.totalUsd * 100)).toBe(29)
+  expect(s.advisorTurns).toBe(1)
+  expect(Math.round(s.advisorShare * 100)).toBe(72)
+  expect(costSummary([])).toEqual({ turns: 0, totalUsd: 0, avgUsd: 0, advisorTurns: 0, advisorUsd: 0, advisorShare: 0 })
+})
+
+test('the context parts keep what is loaded, largest first', async () => {
+  const parts = contextParts([
+    { name: 'Skills', tokens: 9451, kind: 'used' },
+    { name: 'System tools', tokens: 27908, kind: 'used' },
+    { name: 'System tools (deferred)', tokens: 34807, kind: 'deferred' },
+    { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
+    { name: 'Free space', tokens: 921206, kind: 'free' },
+    { name: 'Empty', tokens: 0, kind: 'used' },
+  ])
+  expect(parts.map(p => p.name)).toEqual(['System tools', 'Skills'])
+})
+
+test('an alias that now resolves to another id is a release, said once; a first sight is learned silently', async () => {
+  const first = releaseOf({}, 'claude-opus-5-5')
+  expect(first.changed).toBe(null)
+  expect(first.seen).toEqual({ opus: 'claude-opus-5-5' })
+  expect(releaseOf(first.seen, 'claude-opus-5-5').seen).toBe(first.seen) // same id: nothing to learn
+  const moved = releaseOf(first.seen, 'claude-opus-5-6')
+  expect(moved.changed).toEqual({ tier: 'opus', from: 'claude-opus-5-5', to: 'claude-opus-5-6' })
+  expect(moved.seen).toEqual({ opus: 'claude-opus-5-6' })
+  expect(releaseOf(first.seen, 'some-other-model').changed).toBe(null) // names no tier: teaches nothing
 })
 
 test('reads that waited for each other are flagged, batched ones are not', async () => {
@@ -202,6 +248,22 @@ const STATE: Record<string, unknown> = {
   usedRepos: ['C:/Users/me/GitHub/arkanes'],
   collisions: [{ file: 'ArkButton.tsx', who: 'refonte hub mobile', at: LIVE - 420_000 }],
   goal: { condition: 'les 18 warnings exhaustive-deps corrigés, gates verts', startedAt: LIVE - 1_800_000 },
+  seen: { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' },
+  advisor: { calls: 2, lastAt: LIVE - 120_000, pending: 0 },
+  costs: [
+    { at: LIVE - 600_000, usd: 0.08, tier: 'sonnet', advisorCalls: 0 },
+    { at: LIVE - 300_000, usd: 0.21, tier: 'sonnet', advisorCalls: 1 },
+  ],
+  ctxParts: [
+    { name: 'System tools', tokens: 27908 },
+    { name: 'Skills', tokens: 9451 },
+    { name: 'System prompt', tokens: 1987 },
+    { name: 'Messages', tokens: 3717 },
+  ],
+  journal: [
+    { at: LIVE - 60_000, kind: 'advisor', text: 'consulté' },
+    { at: LIVE - 30_000, kind: 'route', text: 'Débogage : Opus, effort high' },
+  ],
   tasks: [
     { id: '1', subject: 'Lot A', status: 'completed' },
     { id: '2', subject: 'Lot B', status: 'completed' },
@@ -212,10 +274,10 @@ const STATE: Record<string, unknown> = {
 
 
 test('a busy session reads in plain words: cache countdown, keep-warm, goal, collision', async ($, on) => {
-  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks']
+  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
-    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick'].includes(key) ? 0 : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
+    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
     return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
   })
   on('store.get', () => ({ value: undefined }))
@@ -227,5 +289,41 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   }
   // a collision turns the Projets card's key value into ▲ 1
   expect((await ui.find({ type: 'Text', text: /^╭─ Projets ─+ ▲ 1 ─╮$/ }))?.text).toMatch(/▲ 1/)
+  // the instrumentation cards: versions read from the ids, advisor calls, cost with the advisor's share, what the session loads, the journal
+  for (const words of [
+    /^╭─ Modèles ─+ advisor 2 ─╮$/, /^Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5$/, /^╭─ Coût ─+ 0,29 \$ ─╮$/, /advisor : 1 tour, ~0,21 \$ \(72 %, estimation\)/,
+    /^╭─ Charge ─+ 39 k ─╮$/, /^outils 28 k · skills 9 k · prompt 2 k$/, /conversation 4 k/, /^consulté$/, /^Débogage : Opus, effort high$/,
+  ]) {
+    expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
+  }
   await ui.unmount()
+})
+
+test('the band above the prompt is one line of figures', async ($, on) => {
+  const arrays = ['agents', 'costs']
+  on('state.get', (_, e) => {
+    const key = (e as unknown as { key: string }).key
+    const fallback = arrays.includes(key) ? [] : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['tick'].includes(key) ? 0 : null
+    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+  })
+  on('store.get', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: LIVE }))
+  const ui = await $.ui.mount({
+    plugin: 'compagnon',
+    component: 'AbovePrompt',
+    surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
+  } as never)
+  const line = /^Opus 5\.5 · advisor 2 · 0,29 \$ · ctx 74 % · agents 1$/
+  expect((await ui.find({ type: 'Text', text: line }))?.text).toMatch(line)
+  await ui.unmount()
+})
+
+test('a boolean option is on unless it says off, whichever way it arrives', async () => {
+  expect(isOptionOn(undefined)).toBe(true) // unset: the default
+  expect(isOptionOn(true)).toBe(true)
+  expect(isOptionOn('true')).toBe(true)
+  expect(isOptionOn(false)).toBe(false)
+  expect(isOptionOn('false')).toBe(false)
+  expect(isOptionOn(' False ')).toBe(false)
 })
