@@ -45,7 +45,7 @@ export type RunningTool = { id: string; tool: string; label: string; start: numb
 export type ParallelSummary = { total: number; overlapped: number; sequentialReads: number; agents: number }
 
 export type BackgroundTask = { id: string; type: string; label: string; firstSeen: number }
-export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number }
+export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number }
 export type Waiting = { kind: string; message: string; at: number }
 
 export type Usage = {

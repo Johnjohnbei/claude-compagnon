@@ -4,7 +4,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, RouteRecord, SeenModels, TaskRow, Tier, Usage } from '../types'
-import { Band, ContextCard, CostCard, GoalCard, JournalCard, KeysLine, LoadCard, ModelCard, ModelsCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
+import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard, Schema } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
 import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, adviseClassified, cacheState, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
 
@@ -151,6 +151,8 @@ async function refreshAgents($: $) {
       type: a.type,
       status: a.status,
       firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
+      // The moment it was first seen finished: the card shows how long it ran.
+      endedAt: ['completed', 'failed', 'killed'].includes(a.status) ? (was.find(w => w.id === a.id)?.endedAt ?? now) : undefined,
     })),
   )
 }
@@ -496,6 +498,7 @@ export const register: Register = (on, options) => {
     const [used, isOpen, kw, clash] = await Promise.all([read($, usedRepos), read($, isProjectsOpen), read($, keepWarm), read($, collisions)])
     const [ho, g, taskList, verdict] = await Promise.all([read($, handoff), read($, goal), read($, tasks), verdictNow($)])
     const [log, turnCosts, adv, parts, seenIds] = await Promise.all([read($, journal), read($, costs), read($, advisor), read($, ctxParts), read($, seen)])
+    const routes = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
     const width = Math.min(64, e.props.bodyColumns)
     const ttl = ttlMs(c)
     // The countdown counts a keep-warm ping too: the status line's expiry is stale after one.
@@ -505,17 +508,13 @@ export const register: Register = (on, options) => {
     const { Box } = E
     return (
       <Box flexDirection="column">
-        {ModelCard(E, width, u, d, p, c, verdict, kw, warmLeft, ttl, isAuto)}
-        {ModelsCard(E, width, seenIds, adv, log, now)}
-        {CostCard(E, width, turnCosts)}
+        {Schema(E, { width: e.props.bodyColumns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, now })}
         {ContextCard(E, width, u, ho)}
-        {LoadCard(E, width, parts)}
         {PlanCard(E, width, u, samples, now)}
         {GoalCard(E, width, g, taskList, now)}
         {ProcessCard(E, width, now, run, bg, ag, w, id => void stopTask($, id), id => $.ui.view({ agentId: id }))}
         {ParallelCard(E, width, par)}
         {ProjectsCard(E, width, rp, used, clash, now, isOpen)}
-        {JournalCard(E, width, log)}
         {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen }, {
           auto: async () => {
             await $.store.set('auto', !isAuto)

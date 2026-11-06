@@ -233,13 +233,21 @@ test('the pane draws its cards before any measure', async ($, on) => {
 })
 
 const LIVE = Date.parse('2026-11-05T15:20:00Z')
+const ROUTES = [
+  { at: LIVE - 90_000, source: 'keywords', tier: 'opus', effort: 'high', action: 'keep', head: 'il y a un bug sur la page profil' },
+  { at: LIVE - 30_000, source: 'classifier', tier: 'sonnet', effort: 'medium', action: 'switch', head: 'change la couleur du lien' },
+]
 const STATE: Record<string, unknown> = {
   usage: { model: 'claude-opus-5-5', contextPct: 74, contextTokens: 148_000, contextWindow: 200_000, limits: [{ kind: 'seven_day', percentUsed: 41, resetsAt: '2026-11-08T09:00:00Z' }], costUsd: 0 },
   cache: { warm: true, caching: true, ttl: '1h', expiresAt: LIVE / 1000 + 2_520, recacheTokensIfCold: 148_000, hitRatio: 0.93 },
   decision: { action: 'delegate', tier: 'sonnet', effort: 'medium', why: 'cache chaud de 148 k : Opus garde la main, travail confié à un sous-agent Sonnet' },
   keepWarm: { until: LIVE + 7_200_000, pings: 2, lastPingAt: LIVE - 600_000, stopped: null },
   running: [{ id: 't1', tool: 'Bash', label: 'npx vitest run', start: LIVE - 150_000 }],
-  agents: [{ id: 'a1', label: 'Survey cache keeper', type: 'general-purpose', status: 'running', firstSeen: LIVE - 200_000 }],
+  agents: [
+    { id: 'a1', label: 'Survey cache keeper', type: 'general-purpose', status: 'running', firstSeen: LIVE - 200_000 },
+    { id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 42_000 },
+    { id: 'g1', label: 'sites d’appel', type: 'grep', status: 'completed', firstSeen: LIVE - 60_000, endedAt: LIVE - 42_000 },
+  ],
   parallel: { total: 12, overlapped: 4, sequentialReads: 5, agents: 1 },
   repos: [
     { dir: 'C:/Users/me/GitHub/arkanes', name: 'Arkanes', branch: 'main', ahead: 2, behind: 0, dirty: 17, hasUpstream: true },
@@ -280,19 +288,23 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
     return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
   })
-  on('store.get', () => ({ value: undefined }))
+  on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet$/, /^2\/4$/, /ArkButton\.tsx · « refonte hub mobile »/, /Bash 2 min · 1 agent/, /148 k \/ 200 k/]) {
+  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet$/, /^2\/4$/, /ArkButton\.tsx · « refonte hub mobile »/, /Bash 2 min · 2 agents/, /148 k \/ 200 k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
   // a collision turns the Projets card's key value into ▲ 1
   expect((await ui.find({ type: 'Text', text: /^╭─ Projets ─+ ▲ 1 ─╮$/ }))?.text).toMatch(/▲ 1/)
-  // the instrumentation cards: versions read from the ids, advisor calls, cost with the advisor's share, what the session loads, the journal
+  // the chain: advisor, the main session with what it loads, the decision layer, the scouts, the journal, the status line
   for (const words of [
-    /^╭─ Modèles ─+ advisor 2 ─╮$/, /^Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5$/, /^╭─ Coût ─+ 0,29 \$ ─╮$/, /advisor : 1 tour, ~0,21 \$ \(72 %, estimation\)/,
-    /^╭─ Charge ─+ 39 k ─╮$/, /^outils 28 k · skills 9 k · prompt 2 k$/, /conversation 4 k/, /^consulté$/, /^Débogage : Opus, effort high$/,
+    /^╭─ Advisor ─+ 2 appels ─╮$/, /^il y a 2 min$/, /~72 % du coût \(advisor\)/,
+    /vus : Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5/, /^outils 28 k · skills 9 k · prompt 2 k$/,
+    /^╭─ Décisions ─+ 2 ─╮$/, /mots-clés 1 · classifieur 1 · défaut 0/, /bascule sur ce palier/,
+    /^╭─ Agents ─+ 1\/3 ─╮$/, /^en cours 0:42$/, /^terminé 0:18$/, /^inactif$/,
+    /^consulté$/, /^Débogage : Opus, effort high$/,
+    /agents \[2 actifs\] · advisor \[2 appels\] · décisions \[2\] · coût 0,29 \$/,
   ]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
@@ -314,7 +326,7 @@ test('the band above the prompt is one line of figures', async ($, on) => {
     surface: 'terminal',
     props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
   } as never)
-  const line = /^Opus 5\.5 · advisor 2 · 0,29 \$ · ctx 74 % · agents 1$/
+  const line = /^Opus 5\.5 · advisor 2 · 0,29 \$ · ctx 74 % · agents 2$/
   expect((await ui.find({ type: 'Text', text: line }))?.text).toMatch(line)
   await ui.unmount()
 })
@@ -369,4 +381,22 @@ test('the routing record keeps the first words only, the last two hundred, and r
   const report = routeReport([kw, record])
   expect(report.split('\n')[0]).toBe('2 décisions : mots-clés 1, classifieur 1, défaut 0.')
   expect(report).toContain('corrige ceci')
+})
+
+test('wide pane: the advisor sits beside the main session, the three scouts side by side', async ($, on) => {
+  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  on('state.get', (_, e) => {
+    const key = (e as unknown as { key: string }).key
+    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
+    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+  })
+  on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
+  on('clock.now', () => ({ value: LIVE }))
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 100 }, surface: 'terminal' } as never)
+  for (const title of ['Advisor', 'Modèle', 'Décisions', 'search', 'grep', 'audit']) {
+    const top = new RegExp(`^╭─ ${title} ─`)
+    expect((await ui.find({ type: 'Text', text: top }))?.text).toMatch(top)
+  }
+  expect((await ui.find({ type: 'Text', text: /↓ sous-agents/ }))?.text).toMatch(/↓ sous-agents/)
+  await ui.unmount()
 })

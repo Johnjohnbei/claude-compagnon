@@ -3,8 +3,8 @@
 // line under the cards, not inside them.
 import type { Elements, RenderChildren } from 'claude-code'
 
-import type { AdvisorStat, AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Goal, Handoff, KeepWarm, Level, LogEntry, LogKind, ParallelSummary, Pin, RepoState, RunningTool, SeenModels, TaskRow, TurnCost, Usage, Waiting } from '../types'
-import { TIER_NAME, ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
+import type { AdvisorStat, AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Goal, Handoff, KeepWarm, Level, LogEntry, LogKind, ParallelSummary, Pin, RepoState, RouteRecord, RunningTool, SeenModels, TaskRow, TurnCost, Usage, Waiting } from '../types'
+import { SOURCE_NAME, TIER_NAME, ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
@@ -60,7 +60,7 @@ function Card(E: El, width: number, title: string, value: string, level: Level, 
 }
 
 /** `warmLeft`: time the cache stays warm, keep-warm pings included (the status line's figure goes stale after one). */
-export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean) {
+export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[] = []) {
   const { Text } = E
   const current = pin ? pin.tier : tierOf(usage?.model ?? 'opus')
   // The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone.
@@ -85,45 +85,7 @@ export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision
       : d && d.action !== 'keep'
         ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_NAME[d.tier]}</Text>
         : null
-  return Card(E, width, 'Modèle', shown, level, [cacheLine, detail])
-}
-
-/** The model ids behind the tiers (read from what the engine reported), the advisor's calls, and a release when an alias moved. */
-export function ModelsCard(E: El, width: number, seen: SeenModels, adv: AdvisorStat, journal: LogEntry[], now: number) {
-  const { Text } = E
-  const ids = (['fable', 'opus', 'sonnet', 'haiku'] as const).filter(t => seen[t]).map(t => modelLabel(seen[t] as string))
-  const release = [...journal].reverse().find(l => l.kind === 'release' && now - l.at < DAY)
-  return Card(E, width, 'Modèles', adv.calls > 0 ? `advisor ${adv.calls}` : '—', release ? 'warn' : 'ok', [
-    ids.length > 0 ? <Text wrap="truncate-end">{ids.join(' · ')}</Text> : <Text dimColor>versions lues après le premier tour</Text>,
-    adv.calls > 0 ? <Text dimColor wrap="truncate-end">↳ dernier appel il y a {ageLabel(now - adv.lastAt)} (conseil chiffré)</Text> : null,
-    release ? <Text color="warning" wrap="truncate-end">↳ nouvelle version : {release.text}</Text> : null,
-  ])
-}
-
-/** What the turns cost, and the share of the turns where the advisor was consulted: the figure that says whether it pays. */
-export function CostCard(E: El, width: number, turns: TurnCost[]) {
-  const { Text } = E
-  if (turns.length === 0) return Card(E, width, 'Coût', '…', 'ok', [<Text dimColor>après le premier tour</Text>])
-  const s = costSummary(turns)
-  const isHeavy = s.advisorTurns > 0 && s.advisorShare >= 0.5
-  return Card(E, width, 'Coût', usd(s.totalUsd), isHeavy ? 'warn' : 'ok', [
-    <Text wrap="truncate-end">{s.turns} tours <Text dimColor>· moy. {usd(s.avgUsd)}</Text></Text>,
-    s.advisorTurns > 0
-      ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">↳ advisor : {s.advisorTurns} tour{s.advisorTurns > 1 ? 's' : ''}, ~{usd(s.advisorUsd)} ({Math.round(s.advisorShare * 100)} %, estimation)</Text>
-      : null,
-  ])
-}
-
-/** What the session loads before the first word (tools, skills, agents, prompt): the figure a lighter CLAUDE.md moves. */
-export function LoadCard(E: El, width: number, parts: CtxPart[]) {
-  const { Text } = E
-  if (parts.length === 0) return Card(E, width, 'Charge', '…', 'ok', [<Text dimColor>après le premier tour</Text>])
-  const fixed = parts.filter(p => p.name !== 'Messages')
-  const messages = parts.find(p => p.name === 'Messages')
-  return Card(E, width, 'Charge', k(fixed.reduce((s, p) => s + p.tokens, 0)), 'ok', [
-    <Text wrap="truncate-end">{fixed.map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text>,
-    messages ? <Text dimColor>↳ conversation {k(messages.tokens)}</Text> : null,
-  ])
+  return Card(E, width, 'Modèle', shown, level, [cacheLine, detail, ...extra])
 }
 
 /** The last things the mod decided or saw, newest last. */
@@ -133,7 +95,7 @@ export function JournalCard(E: El, width: number, list: LogEntry[]) {
     ? [<Text dimColor>rien pour l’instant</Text>]
     : list.slice(-6).map(l => (
       <Text wrap="truncate-end">
-        <Text dimColor>{hhmm(l.at)} {KIND_NAME[l.kind].padEnd(7)}</Text>
+        <Text dimColor>{hhmm(l.at)} {KIND_NAME[l.kind].padEnd(8)}</Text>
         <Text>{l.text}</Text>
       </Text>
     )))
@@ -145,6 +107,136 @@ export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, c
   const level = contextPct === null ? 'ok' : levelOf(contextPct)
   const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `ctx ${Math.round(contextPct)} %`, liveAgents > 0 ? `agents ${liveAgents}` : null]
   return <Text color={level === 'ok' ? undefined : COLOR[level]} dimColor={level === 'ok'} wrap="truncate-end">{parts.filter(Boolean).join(' · ')}</Text>
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
+const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
+const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'garde le modèle', switch: 'bascule sur ce palier', delegate: 'confie à un sous-agent' }
+/** The named scouts of ~/.claude/agents, and what each is for. */
+const SCOUTS: Array<[string, string]> = [['search', 'cartographie le dépôt'], ['grep', 'sites d’appel'], ['audit', 'revue du diff, worktree']]
+const FINISHED = ['completed', 'failed', 'killed']
+
+/** One scout's state: running (and for how long), finished (and how long it ran), failed, or idle. The API gives no progress: no percentage. */
+function scoutState(list: AgentRow[], type: string, now: number): { text: string; level: Level } {
+  const mine = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)
+  const last = mine[0]
+  if (!last) return { text: 'inactif', level: 'ok' }
+  if (!FINISHED.includes(last.status)) return { text: `en cours ${clock(now - last.firstSeen)}`, level: 'ok' }
+  if (last.status !== 'completed') return { text: `échec ${clock((last.endedAt ?? now) - last.firstSeen)}`, level: 'warn' }
+  return { text: `terminé ${clock((last.endedAt ?? now) - last.firstSeen)}`, level: 'ok' }
+}
+
+/** The advisor: how often it was consulted and what that costs. Its advice is encrypted by the API: the call is visible, never its text. */
+export function AdvisorCard(E: El, width: number, adv: AdvisorStat, turns: TurnCost[], now: number) {
+  const { Text } = E
+  const s = costSummary(turns)
+  const isHeavy = s.advisorTurns > 0 && s.advisorShare >= 0.5
+  return Card(E, width, 'Advisor', adv.calls > 0 ? plural(adv.calls, 'appel', 'appels') : 'aucun appel', isHeavy ? 'warn' : 'ok', adv.calls === 0
+    ? [<Text dimColor wrap="truncate-end">consulté quand Claude le décide</Text>]
+    : [
+      <Text wrap="truncate-end">dernier <Text dimColor>il y a {ageLabel(now - adv.lastAt)}</Text></Text>,
+      <Text dimColor wrap="truncate-end">conseil chiffré</Text>,
+      s.advisorTurns > 0
+        ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">~{Math.round(s.advisorShare * 100)} % du coût (advisor)</Text>
+        : null,
+    ])
+}
+
+/** The decision layer: which tier the last request got, from which layer, and what was done about it. */
+export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto: boolean) {
+  const { Text } = E
+  const last = routes[routes.length - 1]
+  const count = (src: RouteRecord['source']) => routes.filter(r => r.source === src).length
+  return Card(E, width, 'Décisions', `${routes.length}`, 'ok', !last
+    ? [<Text dimColor wrap="truncate-end">aucune décision pour l’instant</Text>, !isAuto ? <Text dimColor>↳ choix automatique coupé</Text> : null]
+    : [
+      <Text wrap="truncate-end"><Text dimColor>palier </Text>{TIER_NAME[last.tier]} <Text dimColor>· {SOURCE_NAME[last.source]} · effort {last.effort}</Text></Text>,
+      <Text wrap="truncate-end"><Text dimColor>action </Text>{ACTION_TEXT[last.action]}</Text>,
+      <Text dimColor wrap="truncate-end">mots-clés {count('keywords')} · classifieur {count('classifier')} · défaut {count('default')}</Text>,
+      !isAuto ? <Text dimColor>↳ choix automatique coupé</Text> : null,
+    ])
+}
+
+/** The scouts (search, grep, audit): wide, three cards side by side; narrow, one card with a line each. Other agents are counted. */
+export function SwarmCards(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean) {
+  const { Box, Text } = E
+  const others = agents.filter(a => !SCOUTS.some(([name]) => name === a.type) && !FINISHED.includes(a.status)).length
+  const states = SCOUTS.map(([name, role]) => ({ name, role, ...scoutState(agents, name, now) }))
+  const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'autre agent', 'autres agents')} en cours</Text> : null
+  if (!isWide) {
+    const live = states.filter(s => s.text.startsWith('en cours')).length
+    return Card(E, width, 'Agents', `${live}/${SCOUTS.length}`, states.some(s => s.level === 'warn') ? 'warn' : 'ok', [
+      ...states.map(s => (
+        <Text wrap="truncate-end"><Text bold>{s.name.padEnd(7)}</Text><Text color={s.level === 'ok' ? undefined : COLOR[s.level]} dimColor={s.text === 'inactif'}>{s.text}</Text></Text>
+      )),
+      note,
+    ])
+  }
+  const each = Math.floor((width - 2) / SCOUTS.length)
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row" gap={1}>
+        {states.map(s => Card(E, each, s.name, s.text, s.level, [<Text dimColor wrap="truncate-end">{s.role}</Text>]))}
+      </Box>
+      {note}
+    </Box>
+  )
+}
+
+/** The bottom line: what is running, the advisor's calls, the decisions, the cost. */
+export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[]) {
+  const { Text } = E
+  const live = agents.filter(a => !FINISHED.includes(a.status)).length
+  return <Text dimColor wrap="truncate-end">agents [{plural(live, 'actif', 'actifs')}] · advisor [{plural(adv.calls, 'appel', 'appels')}] · décisions [{decisions}] · coût {usd(costSummary(turns).totalUsd)}</Text>
+}
+
+export type SchemaInput = {
+  width: number
+  usage: Usage | null; decision: Decision | null; pin: Pin | null; cache: CacheInfo | null; verdict: CacheVerdict
+  keepWarm: KeepWarm | null; warmLeft: number | null; ttl: number; isAuto: boolean
+  advisor: AdvisorStat; turns: TurnCost[]; seen: SeenModels; parts: CtxPart[]
+  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; now: number
+}
+
+/** The chain at a glance: advisor beside the main session, the decision layer under it, the scouts, the journal, the status line. */
+export function Schema(E: El, s: SchemaInput) {
+  const { Box, Text } = E
+  const isWide = s.width >= 84
+  const total = isWide ? Math.min(s.width, 100) : Math.min(64, s.width)
+  const leftW = 30
+  const rightW = total - leftW - 2
+  const mainW = isWide ? rightW : total
+  const effort = s.pin?.effort ?? s.decision?.effort
+  const fixed = s.parts.filter(p => p.name !== 'Messages')
+  const messages = s.parts.find(p => p.name === 'Messages')
+  const versions = (['fable', 'opus', 'sonnet', 'haiku'] as const).filter(t => s.seen[t]).map(t => modelLabel(s.seen[t] as string))
+  const release = [...s.journal].reverse().find(l => l.kind === 'release' && s.now - l.at < DAY)
+  const extra = [
+    release ? <Text color="warning" wrap="truncate-end">↳ nouvelle version : {release.text}</Text> : null,
+    effort ? <Text wrap="truncate-end"><Text dimColor>effort </Text>{effort}</Text> : null,
+    versions.length > 0 ? <Text dimColor wrap="truncate-end">vus : {versions.join(' · ')}</Text> : null,
+    fixed.length > 0 ? <Text wrap="truncate-end"><Text dimColor>charge </Text>{k(fixed.reduce((n, p) => n + p.tokens, 0))}<Text dimColor>{messages ? ` · conversation ${k(messages.tokens)}` : ''}</Text></Text> : null,
+    fixed.length > 0 ? <Text dimColor wrap="truncate-end">{[...fixed].slice(0, 3).map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text> : null,
+  ]
+  const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra)
+  const advisor = AdvisorCard(E, isWide ? leftW : total, s.advisor, s.turns, s.now)
+  const decisions = DecisionCard(E, mainW, s.routes, s.isAuto)
+  return (
+    <Box flexDirection="column">
+      {isWide ? (
+        <Box flexDirection="row" gap={2}>
+          <Box flexDirection="column" width={leftW}>{advisor}</Box>
+          <Box flexDirection="column" width={rightW}>{main}{decisions}</Box>
+        </Box>
+      ) : (
+        <Box flexDirection="column">{advisor}{main}{decisions}</Box>
+      )}
+      {isWide ? <Text dimColor>  ↓ sous-agents</Text> : null}
+      {SwarmCards(E, total, s.agents, s.now, isWide)}
+      {JournalCard(E, total, s.journal)}
+      {StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns)}
+    </Box>
+  )
 }
 
 export function ContextCard(E: El, width: number, usage: Usage | null, ho: Handoff | null) {
