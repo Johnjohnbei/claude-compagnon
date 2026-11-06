@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger } from '../types'
-import { advise, cacheState, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsColdGuard, parseStatus, pingMissed, pushLog, recordSample, releaseOf, route, spawnModel, summarizeParallel, supportsAlias, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, adviseClassified, cacheState, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -326,4 +326,47 @@ test('a boolean option is on unless it says off, whichever way it arrives', asyn
   expect(isOptionOn(false)).toBe(false)
   expect(isOptionOn('false')).toBe(false)
   expect(isOptionOn(' False ')).toBe(false)
+})
+
+test('the keyword rules say who decided, and a lookup stays a lookup whatever it names', async () => {
+  expect(advise("revois l'architecture du pipeline")?.source).toBe('keywords')
+  expect(advise('la page profil affiche des résultats bizarres depuis hier')?.source).toBe('default')
+  expect(advise('la page profil affiche des résultats bizarres depuis hier')?.tier).toBe('opus')
+  // a request that opens with a lookup word: a lookup, even when it names tests (it used to go to Sonnet)
+  expect(advise('liste les fichiers de tests du dossier arsenal')?.tier).toBe('haiku')
+  // « montre-moi » with its hyphen (it used to fall through to the default)
+  expect(advise('montre-moi le contenu du fichier vercel.json')?.tier).toBe('haiku')
+  // debugging and architecture keep priority over the lookup opening
+  expect(advise('où est le bug sur la page profil ?')?.tier).toBe('opus')
+  expect(advise('quelle est la cause racine des lenteurs sur mobile ?')?.tier).toBe('fable')
+  // edits and features unchanged
+  expect(advise('corrige la faute dans le titre de la page lab')?.tier).toBe('sonnet')
+  expect(advise('implémente la sauvegarde automatique du brouillon')?.tier).toBe('opus')
+})
+
+test('a classifier answer maps back to its tier, and only an exact label counts', async () => {
+  for (const tier of ['haiku', 'sonnet', 'opus', 'fable'] as const) expect(tierOfLabel(CLASSIFY_LABELS[tier])).toBe(tier)
+  expect(tierOfLabel('sonnet')).toBe(undefined)
+  expect(tierOfLabel('')).toBe(undefined)
+  const advice = adviseClassified('fable')
+  expect(advice.source).toBe('classifier')
+  expect(advice.tier).toBe('fable')
+  expect(advice.effort).toBe('xhigh')
+  expect(adviseClassified('haiku').effort).toBe('low')
+})
+
+test('the routing record keeps the first words only, the last two hundred, and reports by layer', async () => {
+  const need = adviseClassified('sonnet')
+  const record = routeRecord(NOW, `change la couleur\n${'x'.repeat(300)}`, need, 'switch')
+  expect(record.head.length).toBe(80)
+  expect(record.head.startsWith('change la couleur x')).toBe(true)
+  let list: ReturnType<typeof routeRecord>[] = []
+  for (let i = 0; i < ROUTE_LOG_MAX + 3; i++) list = pushRoute(list, routeRecord(NOW + i, `demande ${i}`, need, 'keep'))
+  expect(list.length).toBe(ROUTE_LOG_MAX)
+  expect(list[0]?.head).toBe('demande 3')
+  expect(routeReport([])).toBe('Aucune décision enregistrée pour l’instant.')
+  const kw = routeRecord(NOW, 'corrige ceci', { ...need, source: 'keywords' }, 'switch')
+  const report = routeReport([kw, record])
+  expect(report.split('\n')[0]).toBe('2 décisions : mots-clés 1, classifieur 1, défaut 0.')
+  expect(report).toContain('corrige ceci')
 })

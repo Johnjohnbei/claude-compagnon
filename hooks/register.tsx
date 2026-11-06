@@ -3,10 +3,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, SeenModels, TaskRow, Usage } from '../types'
+import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, RouteRecord, SeenModels, TaskRow, Tier, Usage } from '../types'
 import { Band, ContextCard, CostCard, GoalCard, JournalCard, KeysLine, LoadCard, ModelCard, ModelsCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { TIER_NAME, advise, cacheState, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, recordSample, releaseOf, route, spawnModel, summarizeParallel, supportsAlias, tierOf, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
+import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, adviseClassified, cacheState, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -62,6 +62,8 @@ let reposAt = 0
 let coldGuardTokens = 150_000
 /** The band above the prompt: on unless the `showBand` option is switched off. */
 let isBandShown = true
+/** The classifier layer: on unless the `classify` option is switched off. */
+let isClassifierOn = true
 const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
 /** The panel's bookkeeping never fails a prompt or a tool call: a broken update is dropped, the work goes on. */
@@ -172,6 +174,18 @@ async function refreshRepos($: $) {
   await update($, repos, () => rows.filter(r => r !== null))
 }
 
+/**
+ * The classifier layer: one Haiku call that picks the tier a request needs. Gives up after CLASSIFY_TIMEOUT_MS (or on any
+ * failure, or when no label is named) so a slow or failing call never holds the prompt: the caller keeps the default.
+ */
+async function classifyTier($: $, text: string): Promise<Tier | undefined> {
+  const answer = await Promise.race([
+    $.model.classify(text, Object.values(CLASSIFY_LABELS), { model: 'haiku' }),
+    $.clock.sleep(CLASSIFY_TIMEOUT_MS).then(() => undefined),
+  ]).catch(() => undefined)
+  return typeof answer === 'string' ? tierOfLabel(answer) : undefined
+}
+
 /** One line of the session journal. */
 async function note($: $, kind: LogKind, text: string) {
   const at = await $.clock.now()
@@ -211,11 +225,12 @@ async function recordTurn($: $) {
 export const register: Register = (on, options) => {
   projects = String(options.projects ?? '').split(';').map(p => p.trim()).filter(Boolean)
   isBandShown = isOptionOn(options.showBand)
+  isClassifierOn = isOptionOn(options.classify)
   const guardOption = String(options.coldGuardTokens ?? '').trim()
   if (guardOption !== '' && Number.isFinite(Number(guardOption.replace(/k$/i, '000')))) coldGuardTokens = Number(guardOption.replace(/k$/i, '000'))
   on('session.start', async ($, e, next) => {
     await initGuards($)
-    await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff)', argumentHint: '[keepwarm [h|off] | handoff]' })
+    await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff, decisions)', argumentHint: '[keepwarm [h|off] | handoff | decisions]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void refreshRepos($)
     void refreshUsage($)
@@ -245,6 +260,7 @@ export const register: Register = (on, options) => {
       await setKeepWarm($, hours)
       return { text: hours ? `Cache maintenu au chaud ${hours} h : un ping avant chaque expiration, arrêt s’il réécrit au lieu de lire.` : 'Maintien du cache coupé.' }
     }
+    if (verb === 'decisions') return { text: routeReport(((await $.store.get('routeLog')) ?? []) as RouteRecord[]) }
     if (verb === 'handoff') {
       $.clock.after(300, () => void quietly(() => askHandoff($)))
       return { text: 'Handoff demandé : le panneau propose ensuite de repartir d’une session neuve (touche c).' }
@@ -318,15 +334,20 @@ export const register: Register = (on, options) => {
     await quietly(async () => {
       await update($, waiting, () => null)
       await update($, spans, () => [])
-      const need = advise(text)
-      if (!need || (await $.store.get('auto')) === false) return
+      const keyword = advise(text)
+      if (!keyword || (await $.store.get('auto')) === false) return
+      // What no keyword rule recognised goes to the model classifier; a timeout or a failure keeps the default.
+      const tier = keyword.source === 'default' && isClassifierOn ? await classifyTier($, text) : undefined
+      const need = tier ? adviseClassified(tier) : keyword
       await refreshCache($)
       const [u, p] = await Promise.all([read($, usage), read($, pin)])
       const current = p?.tier ?? tierOf(u?.model ?? (await $.session.model()))
       const routed = route(need, current, await verdictNow($))
       const d = (await isAliasSupported($)) ? routed : withoutPin(routed, current)
       await update($, decision, () => d)
-      await note($, 'route', d.why)
+      await note($, 'route', `${SOURCE_NAME[need.source]} : ${d.why}`)
+      const kept = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
+      await $.store.set('routeLog', pushRoute(kept, routeRecord(await $.clock.now(), text, need, d.action)))
       if (d.action === 'switch') await update($, pin, () => ({ tier: d.tier, effort: d.effort }))
       if (d.action === 'delegate') hint = delegationHint(d, need.need)
     })

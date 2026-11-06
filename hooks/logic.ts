@@ -1,5 +1,5 @@
 // Pure logic of the companion pane: no `$`, so the tests run it directly.
-import type { Advice, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Effort, Ledger, Level, LogEntry, ParallelSummary, RepoState, SeenModels, TaskRow, Tier, ToolSpan, TurnCost } from '../types'
+import type { Advice, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Effort, Ledger, Level, LogEntry, ParallelSummary, RepoState, RouteRecord, SeenModels, Source, TaskRow, Tier, ToolSpan, TurnCost } from '../types'
 
 const RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
 
@@ -24,8 +24,8 @@ const ALIAS_MIN_VERSION = [2, 1, 309]
 
 /**
  * Whether the engine accepts an alias in `turn.step`. `version` is what `$.session.version()` returns (a string or an
- * object): the first x.y.z found in it is read. UNVERIFIED shape of that object: when no version can be read the answer
- * is false, so a doubt switches the automatic pin off and never breaks a turn.
+ * object, `{ version, base, builtAt }` on 2.1.318): the first x.y.z found in it is read. When no version can be read the
+ * answer is false, so a doubt switches the automatic pin off and never breaks a turn.
  */
 export function supportsAlias(version: unknown): boolean {
   const found = (typeof version === 'string' ? version : JSON.stringify(version) ?? '').match(/(\d+)\.(\d+)\.(\d+)/)
@@ -42,9 +42,11 @@ export function supportsAlias(version: unknown): boolean {
 const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
   { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
   { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|plante|erreur/i },
+  // A question that opens with a lookup word is a lookup, whatever it names (« liste les fichiers de tests »): above the edit and feature rules,
+  // below the debugging and architecture ones (« où est le bug » stays a bug). JS \b is ASCII-only: it never matches after « où ».
+  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi)(?=[\s,?:-]|$)/i },
   { tier: 'opus', effort: 'medium', need: 'Fonctionnalité ou refonte', re: /refactor|refonte|fonctionnalit|feature|implément|\bmod\b|composant|migration|\bplan\b|maquette/i },
   { tier: 'sonnet', effort: 'medium', need: 'Édition courante', re: /corrige|ajoute|modifie|texte|copie|tradui|\bdoc|tests?\b|lint|renomme|commit|push/i },
-  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi)(?=[\s,?:]|$)/i }, // JS \b is ASCII-only: never matches after « où »
 ]
 
 /** The cache is per model: below this, dropping to a cheaper model still pays. */
@@ -57,8 +59,9 @@ export const tierOf = (model: string): Tier =>
 export function advise(text: string): Advice | null {
   const ask = text.trim()
   if (ask.length < 20 || ask.startsWith('/')) return null
-  const rule = RULES.find(r => r.re.test(ask)) ?? { tier: 'opus' as Tier, effort: 'medium' as Effort, need: 'Demande générale' }
-  return { tier: rule.tier, effort: rule.effort, need: rule.need, reason: `${rule.need} : ${TIER_NAME[rule.tier]}, effort ${rule.effort}` }
+  const rule = RULES.find(r => r.re.test(ask))
+  const found = rule ?? { tier: 'opus' as Tier, effort: 'medium' as Effort, need: 'Demande générale' }
+  return { tier: found.tier, effort: found.effort, need: found.need, reason: `${found.need} : ${TIER_NAME[found.tier]}, effort ${found.effort}`, source: rule ? 'keywords' : 'default' }
 }
 
 /**
@@ -297,3 +300,50 @@ export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; 
 
 /** A boolean option, whichever way the engine hands it (a boolean or the text "true"/"false"): on unless it says off. */
 export const isOptionOn = (value: unknown): boolean => value !== false && String(value ?? '').trim().toLowerCase() !== 'false'
+
+/**
+ * The classifier layer: what the keyword rules did not recognise goes to `$.model.classify` with one label per tier.
+ * The label carries the criteria, so the model reads what each tier is for. Measured on 30 synthetic French requests:
+ * 29/30 against 22/30 for the keywords alone, 10/10 against 3/10 on the ones without a keyword.
+ */
+export const CLASSIFY_LABELS: Record<Tier, string> = {
+  haiku: 'question simple de recherche ou de lecture (où, liste, montre, combien)',
+  sonnet: 'modification courante et précise (corriger, ajouter, renommer, texte, test, commit)',
+  opus: 'débogage, nouvelle fonctionnalité, refonte ou plan de travail',
+  fable: "décision d'architecture, cause racine ou arbitrage entre approches",
+}
+export const CLASSIFY_TIMEOUT_MS = 3000
+const CLASSIFIED_EFFORT: Record<Tier, Effort> = { haiku: 'low', sonnet: 'medium', opus: 'medium', fable: 'xhigh' }
+
+export const tierOfLabel = (label: string): Tier | undefined => (Object.keys(CLASSIFY_LABELS) as Tier[]).find(t => CLASSIFY_LABELS[t] === label)
+
+/** The advice a classifier answer makes. */
+export const adviseClassified = (tier: Tier): Advice => ({
+  tier,
+  effort: CLASSIFIED_EFFORT[tier],
+  need: 'Classé par le modèle',
+  reason: `Classé par le modèle : ${TIER_NAME[tier]}, effort ${CLASSIFIED_EFFORT[tier]}`,
+  source: 'classifier',
+})
+
+export const SOURCE_NAME: Record<Source, string> = { keywords: 'mots-clés', classifier: 'classifieur', default: 'défaut' }
+
+/** The routing decisions kept for review: the last two hundred. */
+export const ROUTE_LOG_MAX = 200
+export const routeRecord = (at: number, text: string, need: Advice, action: RouteRecord['action']): RouteRecord => ({
+  at,
+  source: need.source,
+  tier: need.tier,
+  effort: need.effort,
+  action,
+  head: text.replace(/\s+/g, ' ').trim().slice(0, 80),
+})
+export const pushRoute = (list: RouteRecord[], record: RouteRecord): RouteRecord[] => [...list, record].slice(-ROUTE_LOG_MAX)
+
+/** The review the `/compagnon decisions` command prints: the layer counts, then the last lines. */
+export function routeReport(list: RouteRecord[], last = 20): string {
+  if (list.length === 0) return 'Aucune décision enregistrée pour l’instant.'
+  const count = (s: Source) => list.filter(r => r.source === s).length
+  const lines = list.slice(-last).map(r => `${new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}  ${SOURCE_NAME[r.source].padEnd(10)} ${TIER_NAME[r.tier].padEnd(6)} ${r.action.padEnd(8)} ${r.head}`)
+  return [`${list.length} décision${list.length > 1 ? 's' : ''} : mots-clés ${count('keywords')}, classifieur ${count('classifier')}, défaut ${count('default')}.`, ...lines].join('\n')
+}

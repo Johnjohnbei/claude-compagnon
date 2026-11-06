@@ -1,6 +1,6 @@
 {
   "name": "compagnon",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Panneau compagnon : bascule de modèle automatique sans perte de cache, contexte, forfait sur 7 jours, process bloqués, parallélisme, état des dépôts.",
   "author": {
     "name": "Johnjohnbei"
@@ -18,6 +18,12 @@
       "type": "boolean",
       "title": "Bandeau au-dessus de la saisie",
       "description": "Une ligne de chiffres (modèle, advisor, coût, contexte, agents) au-dessus de la zone de saisie. Décocher pour ne garder que le panneau.",
+      "default": true
+    },
+    "classify": {
+      "type": "boolean",
+      "title": "Classer les demandes non reconnues avec un modèle",
+      "description": "Une demande que les mots-clés ne reconnaissent pas est classée par un appel Haiku (environ 1 s et quelques centaines de jetons) au lieu de partir sur Opus. Décocher pour garder les mots-clés seuls.",
       "default": true
     },
     "coldGuardTokens": {

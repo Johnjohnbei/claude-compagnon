@@ -28,6 +28,18 @@ Le conseil de l'advisor est chiffré par l'API : seul le nombre d'appels est vis
 `/compagnon` rouvre le panneau, `/compagnon keepwarm [heures|off]` règle le maintien au chaud, `/compagnon handoff` demande un handoff.
 Touches dans le panneau : `a` coupe ou réactive la bascule automatique, `k` garde le cache au chaud 2 h (ou l'arrête), `h` demande un handoff, `c` efface la session et repart du handoff prêt, `r` relit les dépôts, `p` déplie ou replie les dépôts non touchés.
 
+## Classement des demandes
+
+Trois couches, dans cet ordre :
+
+1. **Mots-clés** : gratuits et instantanés.
+2. **Classifieur** : une demande qu'aucun mot-clé ne reconnaît est classée par un appel Haiku (`$.model.classify`, une étiquette par palier). Environ 1 s et quelques centaines de jetons, seulement pour ces demandes. L'option `classify` le coupe.
+3. **Repli sur Opus** : si le classifieur dépasse 3 s, échoue ou ne nomme aucune étiquette.
+
+Mesure faite sur 30 demandes en français écrites pour l'occasion (donc biaisée) : 22/30 pour les mots-clés seuls, 29/30 avec le classifieur ; sur les 10 demandes sans mot-clé, 3/10 contre 10/10. Un échantillon de vos vraies demandes reste à constituer.
+
+`/compagnon decisions` affiche le nombre de décisions par couche et les 20 dernières. Le mod garde les 200 dernières décisions dans son stockage local (`~/.claude/plugins/store/`), avec les 80 premiers caractères de chaque demande et jamais le texte entier.
+
 ## Bascule de modèle sans perte de cache
 
 Un cache de prompt appartient à un modèle et ne se copie pas : changer de modèle fait relire toute la conversation sans cache.
@@ -97,7 +109,7 @@ Sans ce relais, le mod suppose le cache chaud pendant 1 h après le dernier tour
 
 ## Limites
 
-- Le classement par mots-clés est approximatif : une demande non reconnue reste sur Opus.
+- Le classement par mots-clés est approximatif. Une demande qu'ils ne reconnaissent pas passe au classifieur (voir « Classement des demandes ») ; sans lui (option coupée, délai de 3 s dépassé ou échec), elle reste sur Opus.
 - Le forfait n'est publié qu'en pourcentages ; la courbe 7 jours ne compte que les jours où une session a tourné.
 - L'heuristique de parallélisme est propre à ce mod.
 - La garde de collision ne voit que les sessions où le compagnon tourne.

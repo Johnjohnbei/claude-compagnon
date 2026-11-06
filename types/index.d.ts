@@ -2,7 +2,11 @@ export type Tier = 'fable' | 'opus' | 'sonnet' | 'haiku'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh'
 export type Level = 'ok' | 'warn' | 'alert'
 
-export type Advice = { tier: Tier; effort: Effort; need: string; reason: string }
+/** Which layer decided: a keyword rule, the model classifier, or the default (nothing recognised the request). */
+export type Source = 'keywords' | 'classifier' | 'default'
+export type Advice = { tier: Tier; effort: Effort; need: string; reason: string; source: Source }
+/** One routing decision kept in $.store for review: the request's first words, never the whole text. */
+export type RouteRecord = { at: number; source: Source; tier: Tier; effort: Effort; action: 'switch' | 'delegate' | 'keep'; head: string }
 /** What the router did with the last request: switched the main loop, delegated to a subagent, or kept the model. */
 export type Decision = { action: 'switch' | 'delegate' | 'keep'; tier: Tier; effort: Effort; why: string }
 /** The model the main loop runs on since the last free switch; null = the session's own model. */
