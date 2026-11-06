@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger } from '../types'
-import { advise, cacheState, collisionFor, collisionsWith, delegationHint, goalProgress, keepWarmDue, lastSevenDays, needsColdGuard, parseStatus, pingMissed, recordSample, modelLabel, route, summarizeParallel, supportsAlias, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, cacheState, collisionFor, collisionsWith, delegationHint, goalProgress, keepWarmDue, lastSevenDays, needsColdGuard, parseStatus, pingMissed, recordSample, modelLabel, route, spawnModel, summarizeParallel, supportsAlias, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -66,6 +66,23 @@ test('the alias pin needs engine 2.1.309, and a doubt never breaks a turn', asyn
   expect(free.action).toBe('switch')
   expect(withoutPin(free, 'opus').action).toBe('delegate')
   expect(withoutPin({ ...free, action: 'keep' }, 'opus').action).toBe('keep')
+})
+
+test('a delegation fills the model of a general-purpose subagent, and nothing else', async () => {
+  const delegate = { action: 'delegate', tier: 'sonnet', effort: 'medium', why: 'x' } as const
+  expect(spawnModel(delegate, { subagentType: 'general-purpose' })).toBe('sonnet')
+  // a model the call gave stays, a named agent keeps its own model
+  expect(spawnModel(delegate, { subagentType: 'general-purpose', model: 'opus' })).toBe(undefined)
+  expect(spawnModel(delegate, { subagentType: 'search' })).toBe(undefined)
+  expect(spawnModel(delegate, { subagentType: 'Explore' })).toBe(undefined)
+  // forks, teammates and resumed runs are left alone
+  expect(spawnModel(delegate, { subagentType: 'general-purpose', fork: true })).toBe(undefined)
+  expect(spawnModel(delegate, { subagentType: 'general-purpose', isTeammate: true })).toBe(undefined)
+  expect(spawnModel(delegate, { subagentType: 'general-purpose', resume: { agentId: 'a1' } })).toBe(undefined)
+  // no delegation, no imposition
+  expect(spawnModel({ ...delegate, action: 'switch' }, { subagentType: 'general-purpose' })).toBe(undefined)
+  expect(spawnModel({ ...delegate, action: 'keep' }, { subagentType: 'general-purpose' })).toBe(undefined)
+  expect(spawnModel(null, { subagentType: 'general-purpose' })).toBe(undefined)
 })
 
 test('reads that waited for each other are flagged, batched ones are not', async () => {

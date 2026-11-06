@@ -25,6 +25,8 @@ Le mod reconnaît le besoin de chaque demande par mots-clés (aucun token dépen
 - sinon il garde le modèle principal et ajoute à la demande une consigne pour confier l'exécution à un sous-agent du bon modèle (un sous-agent part d'un contexte neuf, le cache principal reste intact) ;
 - les relances courtes, les commandes et les sous-agents ne sont jamais routés.
 
+Quand la bascule est refusée par le cache, la délégation est imposée : un sous-agent généraliste lancé sans modèle reçoit le palier choisi (un modèle donné par l'appel, un agent nommé, un fork ou un coéquipier ne sont pas touchés).
+
 Aucun identifiant de modèle ni numéro de version n'est écrit dans le mod. La bascule envoie le nom du palier (`fable`, `opus`, `sonnet`, `haiku`) : le moteur le résout vers la version recommandée du moment, et `ANTHROPIC_DEFAULT_OPUS_MODEL` (et ses équivalents) le redirige ou le fige. La version affichée dans la card Modèle est lue dans l'identifiant que le moteur renvoie, pas dans le mod. Une nouvelle release de modèle ne demande donc aucun changement ici. Non vérifié : si `ANTHROPIC_DEFAULT_*_MODEL` s'applique à un alias envoyé par un mod (la doc ne le dit pas).
 
 Version minimale : Claude Code 2.1.309 (avant, un alias envoyé par un mod fait échouer la requête). Si la version est plus ancienne, ou ne peut pas être lue, la bascule est coupée : le mod délègue alors à un sous-agent du bon modèle, comme sur un cache chaud.

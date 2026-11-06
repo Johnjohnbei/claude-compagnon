@@ -162,6 +162,16 @@ export function route(advice: Advice, current: Tier, verdict: CacheVerdict): Dec
 export const withoutPin = (d: Decision, current: Tier): Decision =>
   d.action === 'switch' ? { ...d, action: 'delegate', why: `${TIER_NAME[current]} garde la main (bascule indisponible sur ce moteur), travail confié à un sous-agent ${TIER_NAME[d.tier]}` } : d
 
+/**
+ * The tier a delegation imposes on a subagent. Only a general-purpose subagent whose call named no model gets it: a model
+ * the call gave stays (Claude may have a reason), a named agent keeps the model its definition gives (the Haiku scouts),
+ * and a fork, a teammate or a resumed run is left alone.
+ */
+export function spawnModel(d: Decision | null, e: { subagentType: string; model?: string; fork?: boolean; isTeammate?: boolean; resume?: unknown }): Tier | undefined {
+  if (!d || d.action !== 'delegate' || e.model || e.fork || e.isTeammate || e.resume) return undefined
+  return e.subagentType === 'general-purpose' ? d.tier : undefined
+}
+
 /** Appended to the user's message (never to the system prompt, which would break the cache it protects). */
 export const delegationHint = (d: Decision, need: string): string =>
   `\n\n[compagnon] Besoin détecté : ${need.toLowerCase()}. Pour ne pas perdre le cache de ce contexte, garde le modèle actuel pour piloter et confie l'exécution à un sous-agent avec model: "${d.tier}", en lui donnant un brief complet (fichiers, objectif, critères). Si la tâche est trop courte pour valoir un sous-agent, fais-la directement.`

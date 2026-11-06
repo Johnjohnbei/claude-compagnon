@@ -6,7 +6,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, TaskRow, Usage } from '../types'
 import { ContextCard, GoalCard, KeysLine, ModelCard, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { advise, cacheState, dayKey, delegationHint, needsColdGuard, normPath, parseStatus, recordSample, route, summarizeParallel, supportsAlias, tierOf, touchedRepos, ttlMs, withoutPin, type DailySamples } from './logic'
+import { advise, cacheState, dayKey, delegationHint, needsColdGuard, normPath, parseStatus, recordSample, route, spawnModel, summarizeParallel, supportsAlias, tierOf, touchedRepos, ttlMs, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -288,6 +288,12 @@ export const register: Register = (on, options) => {
     const p = await read($, pin)
     return yield* next(p && !e.agentId && (await isAliasSupported($)) ? { ...e, model: p.tier, effort: p.effort } : e)
   })
+
+  // The delegation the router asked for (see delegationHint) holds even when Claude leaves the model out of the call.
+  on('agent.spawn', async ($, e, next) => {
+    const model = spawnModel(await read($, decision), e)
+    return next(model ? { ...e, model } : e)
+  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the subagent starts as asked
 
   on('tool.call', async ($, e, next) => {
     let start = 0
