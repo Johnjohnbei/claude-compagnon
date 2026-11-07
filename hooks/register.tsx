@@ -191,7 +191,7 @@ async function note($: $, kind: LogKind, text: string) {
   await update($, journal, list => pushLog(list, { at, kind, text }))
 }
 
-/** The ids the engine reported, kept across sessions: an id that changes for a tier is a release, said once. */
+/** The ids the engine reported, kept across sessions: a newer id for a tier is a release, said once; an older one is a fallback or another window's alias, ignored (`releaseOf`). */
 let seenNow: SeenModels | null = null
 async function trackModel($: $, model: unknown) {
   if (typeof model !== 'string' || model === '') return

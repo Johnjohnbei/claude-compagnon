@@ -287,15 +287,31 @@ export function costSummary(turns: TurnCost[]): { turns: number; totalUsd: numbe
 export const contextParts = (categories: Array<{ name: string; tokens: number; kind?: string }>): CtxPart[] =>
   categories.filter(c => c.kind === 'used' && c.tokens > 0).map(c => ({ name: c.name, tokens: c.tokens })).sort((a, b) => b.tokens - a.tokens)
 
+/** Negative when `a` is an older release than `b`, 0 for the same release (a `[1m]` or dated spelling included). */
+const compareVersions = (a: string, b: string): number => {
+  const pa = (versionOf(a) ?? '').split('.').filter(Boolean).map(Number)
+  const pb = (versionOf(b) ?? '').split('.').filter(Boolean).map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (d) return d
+  }
+  return 0
+}
+
 /**
- * Learns the id behind a tier from a model id the engine reported. `changed` is set when that tier already had another id:
- * an alias now resolves to a new release. An id that names no tier teaches nothing; an unseen tier is learned silently.
+ * Learns the id behind a tier from a model id the engine reported. `changed` is set when that tier already had an
+ * older release: the alias now resolves to a newer one. Releases only move forward, so an older id (the engine fell
+ * back for a step, or another open window's alias still resolves to the previous release: both seen on 2026-11-07,
+ * `opus` giving Opus 5 and Opus 5.5 in parallel sessions) or the same release spelled otherwise changes nothing and
+ * the remembered id stands. An id that names no tier teaches nothing; an unseen tier is learned silently.
  */
 export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; changed: { tier: Tier; from: string; to: string } | null } {
   const tier = (['fable', 'opus', 'sonnet', 'haiku'] as const).find(t => model.toLowerCase().includes(t))
   if (!tier || seen[tier] === model) return { seen, changed: null }
   const from = seen[tier]
-  return { seen: { ...seen, [tier]: model }, changed: from ? { tier, from, to: model } : null }
+  if (!from || !versionOf(from)) return { seen: { ...seen, [tier]: model }, changed: null }
+  if (compareVersions(model, from) <= 0) return { seen, changed: null }
+  return { seen: { ...seen, [tier]: model }, changed: { tier, from, to: model } }
 }
 
 /** A boolean option, whichever way the engine hands it (a boolean or the text "true"/"false"): on unless it says off. */

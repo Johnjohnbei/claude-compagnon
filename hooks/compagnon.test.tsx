@@ -129,6 +129,16 @@ test('an alias that now resolves to another id is a release, said once; a first 
   expect(moved.changed).toEqual({ tier: 'opus', from: 'claude-opus-5-5', to: 'claude-opus-5-6' })
   expect(moved.seen).toEqual({ opus: 'claude-opus-5-6' })
   expect(releaseOf(first.seen, 'some-other-model').changed).toBe(null) // names no tier: teaches nothing
+  expect(releaseOf(first.seen, 'claude-opus-6').changed?.to).toBe('claude-opus-6') // a major counts too
+})
+
+test('an older id (a fallback step, another window still on the previous release) or another spelling is not a release', async () => {
+  const seen = { opus: 'claude-opus-5-5' }
+  expect(releaseOf(seen, 'claude-opus-5')).toEqual({ seen, changed: null }) // the 2026-11-07 ping-pong: Opus 5 ↔ 5.5
+  expect(releaseOf(seen, 'claude-opus-5-5[1m]')).toEqual({ seen, changed: null })
+  expect(releaseOf(seen, 'claude-opus-5-5-20261001')).toEqual({ seen, changed: null })
+  expect(releaseOf(seen, 'opus')).toEqual({ seen, changed: null }) // an alias carries no version
+  expect(releaseOf({ opus: 'opus' }, 'claude-opus-5-5')).toEqual({ seen: { opus: 'claude-opus-5-5' }, changed: null }) // a versionless memory is replaced silently
 })
 
 test('reads that waited for each other are flagged, batched ones are not', async () => {
