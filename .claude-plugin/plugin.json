@@ -1,6 +1,6 @@
 {
   "name": "compagnon",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Panneau compagnon : bascule de modèle automatique sans perte de cache, contexte, forfait sur 7 jours, process bloqués, parallélisme, état des dépôts.",
   "author": {
     "name": "Johnjohnbei"

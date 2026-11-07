@@ -6,7 +6,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, RouteRecord, SeenModels, TaskRow, Tier, Usage } from '../types'
 import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard, Schema } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, adviseClassified, cacheState, chargeReport, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
+import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, cacheFromRelay, cacheState, chargeReport, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, needsClassifier, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -102,11 +102,8 @@ async function refreshUsage($: $) {
 async function refreshCache($: $) {
   try {
     const dir = (await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? '/tmp'
-    const raw = JSON.parse(await $.fs.read(`${dir}/claude-ctx-${await $.session.id()}.json`)).prompt_cache
-    const info: CacheInfo | null = raw
-      ? { warm: raw.warm === true, caching: raw.caching_observed === true, ttl: raw.ttl, expiresAt: raw.expires_at ?? null, recacheTokensIfCold: raw.recache_tokens_if_cold ?? null, hitRatio: raw.hit_ratio ?? null }
-      : null
-    await update($, cache, () => info)
+    const relayed = JSON.parse(await $.fs.read(`${dir}/claude-ctx-${await $.session.id()}.json`)).prompt_cache
+    await update($, cache, () => cacheFromRelay(relayed))
   } catch {
     await update($, cache, () => null) // no relay yet: cacheState falls back to the 1 h TTL rule
   }
@@ -220,7 +217,8 @@ async function recordTurn($: $) {
   await update($, costMark, () => u.costUsd)
   if (usdMoved > 0 || adv.pending > 0) await update($, costs, list => [...list, { at, usd: usdMoved, tier: p?.tier ?? tierOf(u.model), advisorCalls: adv.pending }].slice(-200))
   await update($, advisor, a => ({ ...a, pending: 0 }))
-  const full = (await $.session.usage({ breakdown: 'summary' })) as { context?: { breakdown?: { categories?: Array<{ name: string; tokens: number; kind?: string }> } } }
+  // `full` counts each file on its own; `summary` spreads the remainder over « System tools » and understates the memory (measured: 27 k against 36 k).
+  const full = (await $.session.usage({ breakdown: 'full' })) as { context?: { breakdown?: { categories?: Array<{ name: string; tokens: number; kind?: string }> } } }
   await update($, ctxParts, () => contextParts(full.context?.breakdown?.categories ?? []))
 }
 
@@ -342,9 +340,10 @@ export const register: Register = (on, options) => {
       await update($, spans, () => [])
       const keyword = advise(text)
       if (!keyword || (await $.store.get('auto')) === false) return
-      // What no keyword rule recognised goes to the model classifier; a timeout or a failure keeps the default.
-      const tier = keyword.source === 'default' && isClassifierOn ? await classifyTier($, text) : undefined
-      const need = tier ? adviseClassified(tier) : keyword
+      // What no keyword rule recognised, or only the weak edit rule did, goes to the model classifier (which may raise the weak
+      // rule, never lower it); a timeout or a failure keeps the keyword answer.
+      const tier = isClassifierOn && needsClassifier(keyword) ? await classifyTier($, text) : undefined
+      const need = settle(keyword, tier)
       await refreshCache($)
       const [u, p] = await Promise.all([read($, usage), read($, pin)])
       const current = p?.tier ?? tierOf(u?.model ?? (await $.session.model()))

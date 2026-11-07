@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger } from '../types'
-import { advise, adviseClassified, cacheState, chargeReport, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, adviseClassified, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -433,4 +433,67 @@ test('the load report names the heavy sources: memory files by path, skills by p
   // a shape it does not know never throws
   expect(chargeReport(undefined)).toBe('Aucune mesure : le moteur n’a pas renvoyé de détail de contexte.')
   expect(chargeReport({ categories: [{ name: 'Skills', tokens: 10, kind: 'used' }], memoryFiles: 'oops', skills: null, mcpTools: [null, 3] })).toContain('Charge au démarrage : 10 jetons.')
+})
+
+test('a request that opens with a lookup verb is a lookup: mapping, finding, listing', async () => {
+  for (const ask of [
+    'cartographie ce dépôt : où le palier est décidé et qui appelle tierOf',
+    'trouve tous les endroits qui lisent le fichier claude-ctx',
+    'recense les hooks qui touchent au cache',
+    'fais-moi la liste des agents et de leurs modèles',
+    'qui appelle tierOf dans ce dépôt ?',
+  ]) expect(advise(ask)?.tier).toBe('haiku')
+  // debugging and architecture words still win over the lookup verb
+  expect(advise('trouve le bug qui fait planter la page profil')?.tier).toBe('opus')
+  expect(advise('cartographie la cause racine de la lenteur sur mobile')?.tier).toBe('fable')
+})
+
+test('the classifier raises the weak edit rule, never lowers it, and answers what no rule recognised', async () => {
+  const edit = advise('ajoute un nouveau type de fiche concept avec ses relations')!
+  expect(edit.tier).toBe('sonnet')
+  expect(needsClassifier(edit)).toBe(true)
+  expect(settle(edit, 'opus').tier).toBe('opus') // a feature, not an edit
+  expect(settle(edit, 'opus').source).toBe('classifier')
+  expect(settle(edit, 'fable').tier).toBe('fable')
+  expect(settle(edit, 'haiku')).toBe(edit) // never lowered
+  expect(settle(edit, undefined)).toBe(edit) // a timeout or a failure keeps the keyword answer
+  const unknown = advise('la page profil affiche des résultats bizarres depuis hier')!
+  expect(needsClassifier(unknown)).toBe(true)
+  expect(settle(unknown, 'haiku').tier).toBe('haiku') // nothing recognised it: the classifier decides, up or down
+  const debug = advise('il y a un bug sur la page profil quand on clique')!
+  expect(needsClassifier(debug)).toBe(false) // a strong rule is not second-guessed
+  const lookup = advise('où est défini le hook useModuleEnabled ?')!
+  expect(needsClassifier(lookup)).toBe(false)
+})
+
+test('the load report points at the heavy sources only', async () => {
+  const heavy = chargeReport({
+    categories: [{ name: 'Memory files', tokens: 20000, kind: 'used' }],
+    memoryFiles: [{ path: '/work/coeurdar/CLAUDE.md', type: 'Project', tokens: 17000 }, { path: '/work/coeurdar/RTK.md', type: 'Project', tokens: 151 }],
+    skills: { totalSkills: 2, tokens: 2000, skillFrontmatter: [{ name: 'a:x', source: 'plugin', pluginName: 'marketing', tokens: 1800 }, { name: 'b', source: 'userSettings', tokens: 200 }] },
+    agents: [{ agentType: 'brand-voice:z', source: 'plugin', tokens: 1900 }],
+    mcpTools: [{ server: 'supabase', tokens: 2500 }],
+  })
+  expect(heavy).toContain('Pistes :')
+  expect(heavy).toContain('coeurdar/CLAUDE.md pèse 17,0 k')
+  expect(heavy).toContain('Plugin marketing : 1,8 k de skills')
+  expect(heavy).toContain('Agents de plugins : 1,9 k')
+  expect(heavy).toContain('Serveur MCP supabase : 2,5 k')
+  // a small memory file and a user skill earn no pointer
+  expect(heavy).not.toContain('RTK.md pèse')
+  expect(heavy).not.toContain('Plugin userSettings')
+  const light = chargeReport({ categories: [{ name: 'Memory files', tokens: 3000, kind: 'used' }], memoryFiles: [{ path: '/p/CLAUDE.md', type: 'Project', tokens: 3000 }] })
+  expect(light).not.toContain('Pistes')
+})
+
+test('contract with claude-config: the prompt_cache the status line relays reads into a cache state', async () => {
+  // exactly what hooks/statusline.js writes under `prompt_cache` (raw input.prompt_cache), keys as the engine names them
+  const relayed = { warm: true, caching_observed: true, ttl: '1h', expires_at: 1793990000, recache_tokens_if_cold: 148000, hit_ratio: 0.93 }
+  expect(cacheFromRelay(relayed)).toEqual({ warm: true, caching: true, ttl: '1h', expiresAt: 1793990000, recacheTokensIfCold: 148000, hitRatio: 0.93 })
+  expect(cacheFromRelay(null)).toBe(null) // statusline.js writes null before the engine reports a cache
+  expect(cacheFromRelay(undefined)).toBe(null)
+  expect(cacheFromRelay('x')).toBe(null)
+  // a key of the wrong type reads as absent, never as a wrong number
+  const odd = cacheFromRelay({ warm: 'yes', ttl: 3600, expires_at: '1793990000', hit_ratio: NaN })
+  expect(odd).toEqual({ warm: false, caching: false, ttl: undefined, expiresAt: null, recacheTokensIfCold: null, hitRatio: null })
 })

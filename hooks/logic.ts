@@ -42,9 +42,9 @@ export function supportsAlias(version: unknown): boolean {
 const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
   { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
   { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|plante|erreur/i },
-  // A question that opens with a lookup word is a lookup, whatever it names (« liste les fichiers de tests »): above the edit and feature rules,
+  // A request that opens with a lookup word or verb is a lookup, whatever it names (« liste les fichiers de tests », « cartographie ce dépôt »): above the edit and feature rules,
   // below the debugging and architecture ones (« où est le bug » stays a bug). JS \b is ASCII-only: it never matches after « où ».
-  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi)(?=[\s,?:-]|$)/i },
+  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi|cartograph\w*|trouve|recense|repère|dresse la liste|(?:fais|donne)(?:-moi)? la liste|qui appelle)(?=[\s,?:-]|$)/i },
   { tier: 'opus', effort: 'medium', need: 'Fonctionnalité ou refonte', re: /refactor|refonte|fonctionnalit|feature|implément|\bmod\b|composant|migration|\bplan\b|maquette/i },
   { tier: 'sonnet', effort: 'medium', need: 'Édition courante', re: /corrige|ajoute|modifie|texte|copie|tradui|\bdoc|tests?\b|lint|renomme|commit|push/i },
 ]
@@ -326,6 +326,24 @@ export const adviseClassified = (tier: Tier): Advice => ({
   source: 'classifier',
 })
 
+/** The keyword rule whose hit is the weakest signal (« ajoute », « texte », « commit » appear in features and decisions too). */
+const EDIT_NEED = 'Édition courante'
+const TIER_RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
+
+/** Whether the classifier is worth a call: nothing recognised the request, or only the weak edit rule did. */
+export const needsClassifier = (advice: Advice): boolean => advice.source === 'default' || advice.need === EDIT_NEED
+
+/**
+ * The advice once the classifier has answered (or not). An unrecognised request takes the classifier's tier; a weak edit-rule hit
+ * only goes UP (a classifier saying "feature" or "architecture" overrides « ajoute »), never down. Measured on 37 synthetic French
+ * requests: 33/37 with the keywords then the classifier for what they miss, 35/37 when it may also raise the edit rule.
+ */
+export function settle(keyword: Advice, classified: Tier | undefined): Advice {
+  if (!classified) return keyword
+  if (keyword.source === 'default') return adviseClassified(classified)
+  return TIER_RANK[classified] > TIER_RANK[keyword.tier] ? adviseClassified(classified) : keyword
+}
+
 export const SOURCE_NAME: Record<Source, string> = { keywords: 'mots-clés', classifier: 'classifieur', default: 'défaut' }
 
 /** The routing decisions kept for review: the last two hundred. */
@@ -348,6 +366,9 @@ export function routeReport(list: RouteRecord[], last = 20): string {
   return [`${list.length} décision${list.length > 1 ? 's' : ''} : mots-clés ${count('keywords')}, classifieur ${count('classifier')}, défaut ${count('default')}.`, ...lines].join('\n')
 }
 
+/** A memory file from this size, a plugin or MCP server from the smaller one, earns a pointer in the load report. */
+const HEAVY_FILE = 8000
+const HEAVY_SOURCE = 1500
 const kTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1).replace('.', ',')} k` : `${n}`)
 const sumTokens = (list: Array<{ tokens: number }>): number => list.reduce((s, x) => s + x.tokens, 0)
 const asList = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? value.filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null) : [])
@@ -396,6 +417,32 @@ export function chargeReport(breakdown: unknown): string {
   }
   const commands = (b.slashCommands ?? {}) as { totalCommands?: number; tokens?: number }
   if (commands.tokens) lines.push('', `Commandes : ${commands.totalCommands ?? '?'} (${kTokens(commands.tokens)}).`)
+  // What to do about it: only sources heavy enough to matter, one line each.
+  const hints: string[] = []
+  for (const m of memory.filter(f => f.tokens >= HEAVY_FILE)) hints.push(`${String(m.path ?? '').split(/[\\/]/).slice(-2).join('/')} pèse ${kTokens(m.tokens)} : déplacer ses sections historiques (post-mortems, Origine, Why) dans un CLAUDE.md de sous-dossier ou une règle à \`paths:\`, chargés à la demande.`)
+  for (const s of groupTokens(skillRows.filter(r => typeof r.pluginName === 'string'), x => String(x.pluginName)).filter(s => s.tokens >= HEAVY_SOURCE)) hints.push(`Plugin ${s.label} : ${kTokens(s.tokens)} de skills au démarrage ; à désactiver (/plugin) s’il ne sert pas ici.`)
+  for (const s of groupTokens(agents.filter(a => a.source === 'plugin'), () => 'agents de plugins').filter(s => s.tokens >= HEAVY_SOURCE)) hints.push(`${s.label[0]?.toUpperCase()}${s.label.slice(1)} : ${kTokens(s.tokens)} ; à désactiver avec leur plugin s’ils ne servent pas ici.`)
+  for (const s of groupTokens(mcp, x => String(x.server ?? x.serverName ?? x.name ?? 'serveur inconnu')).filter(s => s.tokens >= HEAVY_SOURCE)) hints.push(`Serveur MCP ${s.label} : ${kTokens(s.tokens)} ; à déconnecter s’il ne sert pas dans ce projet.`)
+  if (hints.length > 0) lines.push('', 'Pistes :', ...hints.map(h => `  - ${h}`))
   return lines.join('\n')
+}
+
+/**
+ * The `prompt_cache` object the status line receives, as `~/.claude/hooks/statusline.js` (repo claude-config) writes it into
+ * `claude-ctx-<session_id>.json`, read into a CacheInfo; null when there is none. This is the contract between the two repos:
+ * keys warm, caching_observed, ttl, expires_at, recache_tokens_if_cold, hit_ratio. A key of another type reads as absent.
+ */
+export function cacheFromRelay(raw: unknown): CacheInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  return {
+    warm: r.warm === true,
+    caching: r.caching_observed === true,
+    ttl: typeof r.ttl === 'string' ? r.ttl : undefined,
+    expiresAt: num(r.expires_at),
+    recacheTokensIfCold: num(r.recache_tokens_if_cold),
+    hitRatio: num(r.hit_ratio),
+  }
 }
 

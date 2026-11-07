@@ -26,7 +26,7 @@ Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de s
 
 Le conseil de l'advisor est chiffré par l'API : seul le nombre d'appels est visible, jamais son texte ni les jetons qu'il lit. Il n'y a pas de pourcentage de progression pour les agents : l'API n'en donne pas, la durée écoulée la remplace.
 
-`/compagnon charge` imprime ce que la session charge avant la première parole, source par source : fichiers de mémoire avec leur chemin et leurs jetons, skills par plugin, agents, commandes et outils MCP par serveur. C'est la mesure à lancer avant d'alléger quoi que ce soit.
+`/compagnon charge` imprime ce que la session charge avant la première parole, source par source : fichiers de mémoire avec leur chemin et leurs jetons, skills par plugin, agents, commandes et outils MCP par serveur. Elle termine par des pistes pour les sources lourdes (un fichier de mémoire d'au moins 8 k jetons, un plugin ou un serveur MCP d'au moins 1,5 k). C'est la mesure à lancer avant d'alléger quoi que ce soit. La card Charge et cette commande lisent le même détail (`breakdown: 'full'`, qui compte chaque fichier à part ; le mode `summary` sous-estimait la mémoire de 25 % environ).
 
 `/compagnon` rouvre le panneau, `/compagnon keepwarm [heures|off]` règle le maintien au chaud, `/compagnon handoff` demande un handoff.
 Touches dans le panneau : `a` coupe ou réactive la bascule automatique, `k` garde le cache au chaud 2 h (ou l'arrête), `h` demande un handoff, `c` efface la session et repart du handoff prêt, `r` relit les dépôts, `p` déplie ou replie les dépôts non touchés.
@@ -35,11 +35,11 @@ Touches dans le panneau : `a` coupe ou réactive la bascule automatique, `k` gar
 
 Trois couches, dans cet ordre :
 
-1. **Mots-clés** : gratuits et instantanés.
-2. **Classifieur** : une demande qu'aucun mot-clé ne reconnaît est classée par un appel Haiku (`$.model.classify`, une étiquette par palier). Environ 1 s et quelques centaines de jetons, seulement pour ces demandes. L'option `classify` le coupe.
+1. **Mots-clés** : gratuits et instantanés. Une demande qui s'ouvre par un verbe de recherche (où est, qui appelle, liste, cartographie, trouve, recense) part sur Haiku ; le débogage et l'architecture gardent la priorité.
+2. **Classifieur** : une demande qu'aucun mot-clé ne reconnaît, ou que seule la règle d'édition courante reconnaît (« ajoute », « texte », « commit » : signal faible), est classée par un appel Haiku (`$.model.classify`, une étiquette par palier). Pour la règle d'édition courante, il peut seulement **relever** le palier, jamais le baisser. Environ 1 s et quelques centaines de jetons. L'option `classify` le coupe.
 3. **Repli sur Opus** : si le classifieur dépasse 3 s, échoue ou ne nomme aucune étiquette.
 
-Mesure faite sur 30 demandes en français écrites pour l'occasion (donc biaisée) : 22/30 pour les mots-clés seuls, 29/30 avec le classifieur ; sur les 10 demandes sans mot-clé, 3/10 contre 10/10. Un échantillon de vos vraies demandes reste à constituer.
+Mesure faite sur 37 demandes en français écrites pour l'occasion (donc biaisée) : 28/37 pour les mots-clés seuls, 33/37 avec le classifieur pour ce qu'ils ne reconnaissent pas, 35/37 quand il peut aussi relever la règle d'édition courante. Sur une vraie cartographie de dépôt, le routage vers Haiku a coûté 0,022 $ contre 0,693 $ sur Opus (un seul essai). Un échantillon de vos vraies demandes reste à constituer.
 
 `/compagnon decisions` affiche le nombre de décisions par couche et les 20 dernières. Le mod garde les 200 dernières décisions dans son stockage local (`~/.claude/plugins/store/`), avec les 80 premiers caractères de chaque demande et jamais le texte entier.
 
@@ -124,3 +124,11 @@ Sans ce relais, le mod suppose le cache chaud pendant 1 h après le dernier tour
 claude plugin validate .
 claude plugin test .
 ```
+
+## Contrat avec claude-config
+
+Les deux dépôts restent séparés (le mod s'installe par marketplace et peut être partagé ; `claude-config` porte des mémoires privées et des chemins de machine). Ils ne se touchent qu'en trois points :
+
+- **Le relais du cache** : `hooks/statusline.js` de claude-config écrit `claude-ctx-<session>.json` avec la clé `prompt_cache` ; le mod le lit avec `cacheFromRelay` (testé). Sans lui, le mod suppose le cache chaud 1 h.
+- **Les noms des agents** `search`, `grep`, `audit` : la ligne d'état du panneau les suit. Un autre nom reste « inactif ».
+- **Le plancher de modèle** : claude-config fixe `model` et `advisorModel` ; le mod relève le palier par demande. Le fil principal ne peut pas être imposé par les deux à la fois.
