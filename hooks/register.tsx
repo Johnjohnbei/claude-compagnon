@@ -47,7 +47,7 @@ let aliasSupport: Promise<boolean> | null = null
 /** Asked once: the engine version does not change during a session. A failed read counts as no support, said once. */
 const isAliasSupported = ($: $) =>
   (aliasSupport ??= $.session.version().then(supportsAlias, () => false).then(async ok => {
-    if (!ok) await quietly(() => $.ui.toast('compagnon : bascule de modèle coupée (Claude Code 2.1.309 minimum, ou version illisible).'))
+    if (!ok) await quietly(async () => $.ui.toast('compagnon : bascule de modèle coupée (Claude Code 2.1.309 minimum, ou version illisible).'))
     return ok
   }))
 
@@ -477,8 +477,8 @@ export const register: Register = (on, options) => {
   })
 
   // The band above the prompt: one line, the figures that say whether to open the pane.
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
-    if (!isBandShown) return null
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!isBandShown) return next(e) // nothing to show: the band is the plugins' beneath, never a null the engine refuses
     const E = $.ui.resolve(e)
     await read($, tick)
     const [u, p, adv, turnCosts, ag] = await Promise.all([read($, usage), read($, pin), read($, advisor), read($, costs), read($, agents)])

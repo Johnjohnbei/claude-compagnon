@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import type { CacheInfo, Ledger } from '../types'
+import type { CacheInfo, Ledger, LogEntry } from '../types'
 import { advise, adviseClassified, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
@@ -86,7 +86,7 @@ test('a delegation fills the model of a general-purpose subagent, and nothing el
 })
 
 test('the journal keeps the last dozen lines, each cut short', async () => {
-  let list: Array<{ at: number; kind: 'route'; text: string }> = []
+  let list: LogEntry[] = []
   for (let i = 0; i < LOG_MAX + 5; i++) list = pushLog(list, { at: i, kind: 'route', text: `ligne ${i}` })
   expect(list.length).toBe(LOG_MAX)
   expect(list[0]?.text).toBe('ligne 5')
