@@ -6,7 +6,7 @@ import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needs
 import { chargeReport, contextParts } from './load-report'
 import { SPRITE_COLUMNS, SPRITE_ROWS, spriteCells, spriteRuns } from './companion-sprite'
 import { FRAME_MS } from './session-tracking'
-import { activeAgents, activityOf, DONE_MS, FRESH_FAILURE_MS, hasFreshFailure, isFinished, isInFlight, isMoving, moodOf } from './mood'
+import { activeAgents, activityOf, DONE_MS, FRESH_FAILURE_MS, hasFreshFailure, isBusy, isFinished, isInFlight, isMoving, isStuck, moodOf, STUCK_MS } from './mood'
 import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, elapsedLabel, ERROR_LOG_MAX, errorReport, clockLabel, errorSummary, errorText, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
@@ -904,7 +904,7 @@ test('the activity reads working while a turn or an agent runs, done for a few s
 })
 
 /** Mocks a session start over a store that may be pre-seeded, or broken for the `paneExpanded` key only (the rest of the pane needs the store); `e` presses are written to the same store. */
-async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], store: Map<string, unknown>, isStoreBroken = false) {
+async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], store: Map<string, unknown>, isStoreBroken = false, env: Record<string, string> = {}) {
   on('store.get', (_, e) => {
     const { key } = e as unknown as { key: string }
     if (isStoreBroken && key === 'paneExpanded') throw new Error('store down')
@@ -917,7 +917,7 @@ async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>
     return { value: undefined }
   })
   mock.clock(on, { now: LIVE })
-  mock.env(on, { USERPROFILE: 'C:/home/someone', TEMP: 'C:/tmp' })
+  mock.env(on, { USERPROFILE: 'C:/home/someone', TEMP: 'C:/tmp', ...env })
   on('session.id', () => ({ value: 'session-1' }))
   on('session.root', () => ({ value: 'C:/work/repo' }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
@@ -981,15 +981,30 @@ test('the mood is derived by priority: error, then waiting for you, then work, t
 })
 
 test('the pane moves while something is in flight or a permission waits, whatever the mood says', async () => {
-  const working = { state: 'working', since: LIVE - 5_000 } as const
-  expect(isMoving({ isWaiting: false, activity: working })).toBe(true)
-  expect(isMoving({ isWaiting: true, activity: null })).toBe(true)
-  expect(isMoving({ isWaiting: false, activity: null })).toBe(false)
-  expect(isMoving({ isWaiting: false, activity: { state: 'done', at: LIVE } })).toBe(false)
-  expect(isMoving({ isWaiting: false, activity: { state: 'ended', at: LIVE, reason: 'error' } })).toBe(false)
-  // an agent failed beside one that runs: the mood is error, yet the activity (and so the redraw) goes on
+  expect(isMoving({ isWaiting: false, isBusy: true })).toBe(true)
+  expect(isMoving({ isWaiting: true, isBusy: false })).toBe(true)
+  expect(isMoving({ isWaiting: false, isBusy: false })).toBe(false)
+  expect(isBusy(LIVE - 5_000, [], LIVE)).toBe(true) // a main turn
+  expect(isBusy(0, [], LIVE)).toBe(false)
+  // an agent failed beside one that runs: the mood is error, yet something is in flight and the redraw goes on
   const mixed = [{ status: 'failed', firstSeen: LIVE - 90_000, endedAt: LIVE - 60_000 }, { status: 'running', firstSeen: LIVE - 30_000 }]
-  expect(isMoving({ isWaiting: false, activity: activityOf(0, 0, mixed, LIVE) })).toBe(true)
+  expect(isBusy(0, mixed, LIVE)).toBe(true)
+  // a turn that ended in an error, with an agent still running: the face says error, the pane keeps moving
+  expect(activityOf(0, LIVE - 3_000, [{ status: 'running', firstSeen: LIVE - 30_000 }], LIVE, 'error')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'error' })
+  expect(isBusy(0, [{ status: 'running', firstSeen: LIVE - 30_000 }], LIVE)).toBe(true)
+})
+
+test('an agent run starts when it enters running, a stuck one keeps nothing alive, and an idle teammate is not stuck', async () => {
+  const woken = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000 }
+  expect(activityOf(0, 0, [woken], LIVE)).toEqual({ state: 'working', since: LIVE - 20_000 }) // 20 s, not 40 min
+  expect(isStuck(woken, LIVE)).toBe(false)
+  const dead = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - STUCK_MS - 1 } // a teammate pane that died stays running
+  expect(isStuck(dead, LIVE)).toBe(true)
+  expect(isBusy(0, [dead], LIVE)).toBe(false)
+  expect(activityOf(0, 0, [dead], LIVE)).toBe(null)
+  expect(isStuck({ status: 'idle', firstSeen: LIVE - 40 * 60_000 }, LIVE)).toBe(false)
+  // a main turn in flight still counts, with the stuck agent beside it
+  expect(activityOf(LIVE - 5_000, 0, [dead], LIVE)).toEqual({ state: 'working', since: LIVE - 5_000 })
 })
 
 test('a teammate that is idle or pending is not in flight: it neither works nor moves the pane', async () => {
@@ -1017,8 +1032,12 @@ test('how the main turn ended decides what is shown: only an answer is done', as
   expect(activityOf(0, LIVE - 3_000, [], LIVE + DONE_MS, 'aborted')).toBe(null) // an interruption fades with the done
   expect(activityOf(0, LIVE - 3_000, [], LIVE + DONE_MS, 'error')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'error' }) // a failure stays two minutes
   expect(activityOf(0, LIVE - 3_000, [], LIVE + FRESH_FAILURE_MS, 'refusal')).toBe(null)
-  // an agent that ended after the turn makes the end an ordinary one
-  expect(activityOf(0, LIVE - 3_000, [{ status: 'completed', firstSeen: LIVE - 9_000, endedAt: LIVE - 1_000 }], LIVE, 'error')).toEqual({ state: 'done', at: LIVE - 1_000 })
+  // an agent that ended after the turn does not mask how the turn ended
+  const later = [{ status: 'completed', firstSeen: LIVE - 9_000, endedAt: LIVE - 1_000 }]
+  expect(activityOf(0, LIVE - 3_000, later, LIVE, 'error')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'error' })
+  expect(activityOf(0, LIVE - 3_000, later, LIVE, 'refusal')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'refusal' })
+  expect(activityOf(0, LIVE - 3_000, later, LIVE, 'aborted')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'aborted' })
+  expect(activityOf(0, LIVE - 3_000, later, LIVE + DONE_MS, 'aborted')).toBe(null) // an interruption fades at 20 s, an error does not
 })
 
 test('the companion is 16 columns by 9 rows for every mood and frame, half blocks only', async () => {
@@ -1225,13 +1244,15 @@ test('each mood is read from the real state, in the head', async ($, on) => {
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000 })).toMatch(/Claude is working · 0m05/)
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting })).toMatch(/Waiting for you · 0m38/)
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisions: STATE.collisions })).toMatch(/Claude is working/) // a listed collision is information: nobody is asked
-  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisionAsk: { at: LIVE - 38_000 } })).toMatch(/Waiting for you · 0m38/) // an open question waits, timed from the question, not from the other session's edit
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisionAsk: { 'c:/r/a.ts': LIVE - 38_000, 'c:/r/b.ts': LIVE - 5_000 } })).toMatch(/Waiting for you · 0m38/) // an open question waits, timed from the question, not from the other session's edit
   const failedAt = (endedAt: number) => [{ id: 'f1', label: 'lint pass', type: 'lint', status: 'failed', firstSeen: LIVE - 90_000, endedAt }]
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: failedAt(LIVE - 1_000) })).toMatch(/Something failed/)
   // a failure of an earlier turn stays listed in FAILED but the head follows the rest
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: failedAt(LIVE - 60_000) })).toMatch(/Waiting for you/)
   expect(await head({ ...calm, agents: failedAt(LIVE - 3_000) })).toMatch(/Something failed/) // no turn: fresh for two minutes
   expect(await head({ ...calm, agents: failedAt(LIVE - 200_000) })).toMatch(/Resting/)
+  // an interrupted turn with a fresh failed agent is not an API error: the failure is named for what it is
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'aborted', agents: failedAt(LIVE - 2_000) })).toMatch(/Something failed/)
   // a turn ended by an API error or a refusal says so, an interrupted one is rest
   expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'error' })).toMatch(/Turn ended: API error/)
   expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'refusal' })).toMatch(/Turn ended: refused/)
@@ -1262,7 +1283,8 @@ function animationHarness(on: Parameters<TestBody>[1], files: Record<string, str
     return { value: { value: { shape: 'v1', value: atoms.has(key) ? atoms.get(key) : fallback }, version: versions.get(key) ?? 1 } }
   })
   on('state.set', (_, e) => {
-    const { key, value } = e as unknown as { key: string; value: { value: unknown } }
+    const { key, value, ifVersion } = e as unknown as { key: string; value: { value: unknown }; ifVersion?: number }
+    if (ifVersion !== undefined && ifVersion !== (versions.get(key) ?? 1)) return { value: { isSet: false, version: versions.get(key) ?? 1 } } as never // a write made on a stale read is refused, as the engine does
     count.atomWrites += 1
     atoms.set(key, value.value)
     versions.set(key, (versions.get(key) ?? 1) + 1)
@@ -1377,8 +1399,8 @@ test('a collision question waits for you only while it is open, counted from the
   await $.session.start({ cwd: 'C:/r', surface: 'terminal', isInteractive: true })
   await clock.settle()
   await $.tool.call({ tool: 'Edit', file_path: 'C:/r/a.ts' } as never).catch(() => undefined)
-  expect(askedWith).toEqual({ at: LIVE }) // the wait counts from the question, not from the other session's edit five minutes before
-  expect(atoms.get('collisionAsk')).toBe(null) // answered (here dismissed): nothing waits any more
+  expect(askedWith).toEqual({ 'c:/r/a.ts': LIVE }) // the wait counts from the question, not from the other session's edit five minutes before
+  expect(atoms.get('collisionAsk')).toEqual({}) // answered (here dismissed): nothing waits any more
 })
 
 test('narrow, each section row is one line: no name column, no key hint, every piece truncating, the actions kept', async ($, on) => {
@@ -1406,4 +1428,89 @@ test('narrow, each section row is one line: no name column, no key hint, every p
   const wide = await texts(64)
   expect(wide.all.some(t => /^permission {1,2}$/.test(t.text))).toBe(true)
   expect(wide.all.some(t => /^answer in chat$/.test(t.text))).toBe(true)
+})
+
+test('a subagent whose turn ends settles a permission raised before it: nobody waits for an agent that is over', async ($, on) => {
+  const { clock, atoms, count } = animationHarness(on)
+  await clock.settle()
+  await $.classic.Notification(notify('permission_prompt'))
+  await clock.advance(1_000)
+  expect(count.redraws).toBeGreaterThan(0)
+  await $.turn.complete({ ...(complete('answer') as object), agentId: 'a1' } as never) // no main turn is involved
+  expect(atoms.get('waiting')).toBe(null)
+  await clock.advance(FRAME_MS)
+  const stopped = count.redraws
+  await clock.advance(10_000)
+  expect(count.redraws).toBe(stopped) // the loop stopped with the wait
+})
+
+test('a /clear starts clean: no failed agent from before, no collision question left open', async ($, on) => {
+  const { clock, atoms } = animationHarness(on)
+  on('classic.SessionStart', () => ({}) as never)
+  atoms.set('agents', [{ id: 'f1', label: 'lint', type: 'lint', status: 'failed', firstSeen: LIVE - 9_000, endedAt: LIVE - 1_000 }])
+  atoms.set('collisionAsk', { 'c:/r/a.ts': LIVE - 1_000 })
+  await clock.settle()
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  expect(atoms.get('agents')).toEqual([])
+  expect(atoms.get('collisionAsk')).toEqual({})
+})
+
+test('two collision questions open on two files: answering the first leaves the second waiting', async ($, on) => {
+  const others: Ledger = { id: 'other-session', title: 'refonte hub', updatedAt: LIVE, ended: false, files: { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: LIVE - 300_000 }, 'c:/r/b.ts': { path: 'C:/r/b.ts', at: LIVE - 300_000 } } }
+  const { clock, atoms } = animationHarness(on, { 'other.json': JSON.stringify(others) })
+  on('fs.list', () => ({ value: [{ name: 'other.json', kind: 'file', size: 10, modifiedAt: LIVE }] }) as never)
+  on('fs.write', () => ({ value: undefined }) as never)
+  on('session.root', () => ({ value: 'C:/r' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }) as never)
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('command.register', () => ({ value: { command: 'compagnon' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', () => ({ cwd: 'C:/r' }))
+  on('tool.call', async (_, e) => {
+    const call = e as unknown as { tool: string; questions?: Array<{ question: string }> }
+    if (call.tool !== 'AskUserQuestion') return { result: 'ok' } as never
+    await clock.sleep(JSON.stringify(call).includes('a.ts') ? 1_000 : 3_000) // the first file is answered first
+    throw new Error('dismissed')
+  })
+  await $.session.start({ cwd: 'C:/r', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const edits = [$.tool.call({ tool: 'Edit', file_path: 'C:/r/a.ts' } as never).catch(() => undefined), $.tool.call({ tool: 'Edit', file_path: 'C:/r/b.ts' } as never).catch(() => undefined)]
+  await clock.advance(100)
+  expect(Object.keys(atoms.get('collisionAsk') as object).sort()).toEqual(['c:/r/a.ts', 'c:/r/b.ts'])
+  await clock.advance(1_500) // a.ts answered
+  expect(Object.keys(atoms.get('collisionAsk') as object)).toEqual(['c:/r/b.ts']) // b.ts still waits
+  await clock.advance(3_000)
+  await Promise.all(edits)
+  expect(atoms.get('collisionAsk')).toEqual({})
+})
+
+test('NO_COLOR set and not empty hides the companion, the head text staying; empty or unset keeps it', async ($, on) => {
+  await startSession($, on, new Map(), false, { NO_COLOR: '1' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.findAll({ type: 'Text', text: /^[ ▀▄]*[▀▄][ ▀▄]*$/ })).toEqual([])
+  expect((await ui.find({ type: 'Text', text: /Resting/ }))?.text).toBeDefined()
+  await ui.unmount()
+})
+
+test('NO_COLOR empty keeps the companion (no-color.org: only a non-empty value counts)', async ($, on) => {
+  await startSession($, on, new Map(), false, { NO_COLOR: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.findAll({ type: 'Text', text: /^[ ▀▄]*[▀▄][ ▀▄]*$/ })).length).toBeGreaterThan(9)
+  await ui.unmount()
+})
+
+test('a teammate idle or pending shows on one dim line, a stuck agent in amber with its run time, a woken one from its run', async ($, on) => {
+  mockState(on, { ...HEALTHY, running: [], agents: [
+    { id: 't1', label: 'reviewer', type: 'teammate', status: 'idle', firstSeen: LIVE - 40 * 60_000 },
+    { id: 't2', label: 'planner', type: 'teammate', status: 'pending', firstSeen: LIVE - 60_000 },
+    { id: 's1', label: 'dead pane', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 700_000 },
+    { id: 'w1', label: 'woken one', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000 },
+  ] })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^idle {2}reviewer, planner$/ }))?.props.dimColor).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /^dead pane · running 11m40, may be stuck$/ }))?.props.color).toBe('warning')
+  expect(await ui.find({ type: 'Text', text: /^woken one$/ })).toBeDefined() // not stuck: a normal row
+  expect((await ui.find({ type: 'Text', text: /may be stuck/ }))?.text).not.toMatch(/woken/)
+  expect((await ui.find({ type: 'Text', text: /Claude is working · 0m20$/ }))?.text).toBeDefined() // from the run, not from 40 min ago
+  await ui.unmount()
 })

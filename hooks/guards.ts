@@ -11,8 +11,8 @@ type $ = EngineInterface
 
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
-/** While a collision question is open: the clock of the wait, nothing else (the list below is information, the question is what waits). */
-const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, null, { shape: 'v1' })
+/** The collision questions open now, by file: when each was asked. The list of collisions is information, an open question is what waits. */
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v1' })
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 
@@ -109,14 +109,14 @@ async function askAbout($: $, path: string, key: string): Promise<{ deny: string
     const who = hit.other.title || hit.other.id.slice(0, 8)
     const ago = Math.max(1, Math.round((now - hit.at) / MIN))
     const tracked = (await $.process.run(['git', '-C', path.replace(/[\\/][^\\/]*$/, ''), 'ls-files', '--error-unmatch', '--', path]).catch(() => null))?.exitCode === 0
-    await update($, collisionAsk, () => ({ at: now }))
+    await update($, collisionAsk, open => ({ ...open, [key]: now }))
     const answer = await $.ui
       .ask(`Session "${who}" edited ${file} ${ago} min ago. Edit it here too?`, {
         header: 'Collision',
         options: ['Proceed', ...(tracked ? ['Move to a worktree'] : []), 'Cancel'],
       })
       .catch(() => 'Cancel')
-    await update($, collisionAsk, () => null)
+    await update($, collisionAsk, open => Object.fromEntries(Object.entries(open).filter(([k]) => k !== key)))
     const what = `another open Claude Code session ("${who}") edited ${path} ${ago} min ago`
     if (answer === 'Proceed') allowed.set(`${key}|${hit.other.id}`, hit.at)
     else if (answer === 'Move to a worktree') return { deny: `Not edited: ${what}. The user wants to move this session's work into a git worktree. First list the files already changed here (they stay), then use EnterWorktree and redo this change in the worktree.` }

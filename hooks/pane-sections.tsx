@@ -5,11 +5,10 @@ import type { RenderChildren } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheVerdict, Collision, ErrorEntry, Handoff, RunningTool, Usage, Waiting } from '../types'
 import { ACCENT, TONE, k, spin, type El } from './card-frame'
 import { CACHE_KEEP_TOKENS, COLD_SOON_MS, ageLabel, clockLabel, elapsedLabel, levelOf } from './logic'
-import { activeAgents, type Activity } from './mood'
+import { STUCK_MS, activeAgents, isStuck, runStartOf, type Activity } from './mood'
 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
 const TOOL_LONG = 120_000
-const TASK_LONG = 600_000
 const NAME_COL = 11
 /** Under this width a row keeps its mark and its text on one line: no name column, no key hint (its action button stays). */
 export const NARROW_COLUMNS = 44
@@ -118,40 +117,36 @@ export function Running(E: El, w: Work, on: Actions) {
     return Row(E, w.width, { mark: isLong ? ' ▲ ' : mark(i), color: isLong ? amber : isPaused ? undefined : ACCENT, name: t.tool, text: <Text color={isLong ? amber : undefined} dimColor={!isLong} wrap="truncate-end">{t.label}</Text>, hint: <Text color={isLong ? amber : undefined} dimColor={!isLong}>{elapsedLabel(w.now - t.start)}</Text> })
   })
   const agentRows = (a: AgentRow, depth: number, i: number): RenderChildren[] => {
-    const isStuck = a.status === 'waiting' || w.now - a.firstSeen > TASK_LONG
+    const isHeld = a.status === 'waiting' || isStuck(a, w.now)
     const lead = depth > 0 ? `${'  '.repeat(depth)}└` : ''
-    const own = isStuck
-      ? Row(E, w.width, { mark: ` ${lead}▲ `, color: amber, name: a.type, text: <Text color={amber} wrap="truncate-end">{a.label} · {a.status === 'waiting' ? 'waiting' : `running ${elapsedLabel(w.now - a.firstSeen)}, may be stuck`}</Text>, action: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> })
-      : Row(E, w.width, { mark: ` ${lead}${isPaused ? '‖' : spin(w.frame + (i + depth) * 3)} `, color: isPaused ? undefined : ACCENT, name: a.type, text: <Text dimColor wrap="truncate-end">{a.label}</Text>, hint: <Text>{isPaused ? null : Sweep(E, w.frame + i * 2)}<Text dimColor> {elapsedLabel(w.now - a.firstSeen)}</Text></Text> })
+    const own = isHeld
+      ? Row(E, w.width, { mark: ` ${lead}▲ `, color: amber, name: a.type, text: <Text color={amber} wrap="truncate-end">{a.label} · {a.status === 'waiting' ? 'waiting' : `running ${elapsedLabel(w.now - runStartOf(a))}, may be stuck`}</Text>, action: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> })
+      : Row(E, w.width, { mark: ` ${lead}${isPaused ? '‖' : spin(w.frame + (i + depth) * 3)} `, color: isPaused ? undefined : ACCENT, name: a.type, text: <Text dimColor wrap="truncate-end">{a.label}</Text>, hint: <Text>{isPaused ? null : Sweep(E, w.frame + i * 2)}<Text dimColor> {elapsedLabel(w.now - runStartOf(a))}</Text></Text> })
     const kids = depth < 3 ? live.filter(c => c.parentId === a.id) : []
     return [own, ...kids.flatMap((c, j) => agentRows(c, depth + 1, j))]
   }
   const roots = live.filter(a => !a.parentId || !live.some(p => p.id === a.parentId))
   rows.push(...roots.flatMap((a, i) => agentRows(a, 0, i)))
   for (const t of w.tasks) {
-    const isOld = w.now - t.firstSeen > TASK_LONG
+    const isOld = w.now - t.firstSeen > STUCK_MS
     rows.push(Row(E, w.width, { mark: isOld ? ' ▲ ' : ' ● ', color: isOld ? amber : ACCENT, name: 'background', text: <Text color={isOld ? amber : undefined} dimColor={!isOld} wrap="truncate-end">{t.label} · {isOld ? 'in background ' : ''}{ageLabel(w.now - t.firstSeen)}</Text>, action: <Button key={`stop-${t.id}`} plain label="stop" onPress={() => on.onStop(t.id)} /> }))
   }
   const counts = [w.running.length && `${w.running.length} tool${w.running.length > 1 ? 's' : ''}`, live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, w.tasks.length && `${w.tasks.length} in background`].filter(Boolean).join(' · ')
   return Section(E, 'RUNNING', ACCENT, isPaused ? 'paused on you' : counts, rows, w.width)
 }
 
-/** What just ended: green while the turn is fresh (20 s), then one grey line of the agents that finished. */
+/** What just ended: green while the turn is fresh (20 s), then one grey line of the agents that finished; teammates idle or pending, between runs, on a line of their own. */
 export function Done(E: El, w: Work) {
   const { Box, Text } = E
   const finished = w.agents.filter(a => a.status === 'completed').sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0)).slice(0, 3)
-  const text = finished.map(a => `✓ ${a.type} ${elapsedLabel((a.endedAt ?? w.now) - a.firstSeen)}`).join(' · ')
-  if (w.activity?.state === 'done')
-    return (
-      <Box flexDirection="column" width={w.width}>
-        <Text color={TONE.done.color} wrap="truncate-end"><Text bold>DONE</Text>  {text || '✓ turn'}</Text>
-        <Text> </Text>
-      </Box>
-    )
-  if (!text) return null
+  const text = finished.map(a => `✓ ${a.type} ${elapsedLabel((a.endedAt ?? w.now) - runStartOf(a))}`).join(' · ')
+  const resting = w.agents.filter(a => a.status === 'idle' || a.status === 'pending').map(a => a.label || a.type)
+  const isFresh = w.activity?.state === 'done'
+  if (!isFresh && !text && resting.length === 0) return null
   return (
     <Box flexDirection="column" width={w.width}>
-      <Text dimColor wrap="truncate-end">done  {text}</Text>
+      {isFresh ? <Text color={TONE.done.color} wrap="truncate-end"><Text bold>DONE</Text>  {text || '✓ turn'}</Text> : text ? <Text dimColor wrap="truncate-end">done  {text}</Text> : null}
+      {resting.length > 0 ? <Text dimColor wrap="truncate-end">idle  {resting.join(', ')}</Text> : null}
       <Text> </Text>
     </Box>
   )

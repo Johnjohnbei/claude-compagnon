@@ -1,6 +1,6 @@
 // The hooks of a turn's life, extracted from register.tsx (over its size): a permission prompt, the background work a stop
 // reports, a turn's start and its end (and why it ended). They feed the state the pane and the companion read.
-import { atom, update } from 'claude-code'
+import { atom, read, update } from 'claude-code'
 import type { On } from 'claude-code'
 
 import type { BackgroundTask } from '../types'
@@ -71,8 +71,13 @@ export function registerTurnHooks(on: On) {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    // A subagent's end changes the RUNNING and DONE sections only.
+    // A subagent's end changes the RUNNING and DONE sections, and settles a prompt raised before it ended: nobody waits for an
+    // agent that is over (the person denied it, or it died).
     if (e.agentId) {
+      await quietly($, async () => {
+        const [w, ended] = await Promise.all([read($, waiting), $.clock.now()])
+        if (w && w.at <= ended) await update($, waiting, () => null)
+      })
       await quietly($, () => refreshAgents($))
       return done
     }

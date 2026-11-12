@@ -44,7 +44,7 @@ function Title(E: El, hd: HeadInput) {
       return <Text wrap="truncate-end"><Text color={TONE.done.color} bold>✓ Turn done</Text>{hd.activity?.state === 'done' ? <Text dimColor> · {ageLabel(now - hd.activity.at)} ago</Text> : null}</Text>
     case 'error':
       // A turn that ended badly says how; otherwise a failed agent or an error of the mod.
-      return <Text color={TONE.error.color} bold wrap="truncate-end">✕ {hd.activity?.state === 'ended' ? (hd.activity.reason === 'refusal' ? 'Turn ended: refused' : 'Turn ended: API error') : 'Something failed'}</Text>
+      return <Text color={TONE.error.color} bold wrap="truncate-end">✕ {hd.activity?.state === 'ended' && hd.activity.reason === 'refusal' ? 'Turn ended: refused' : hd.activity?.state === 'ended' && hd.activity.reason === 'error' ? 'Turn ended: API error' : 'Something failed'}</Text>
     default:
       if (hd.activity?.state === 'ended') return <Text wrap="truncate-end"><Text dimColor>z </Text><Text bold>Interrupted</Text><Text dimColor> · {ageLabel(now - hd.activity.at)} ago</Text></Text>
       return <Text wrap="truncate-end"><Text dimColor>z </Text><Text bold>Resting</Text>{hd.lastTurnEnd > 0 ? <Text dimColor> · idle {ageLabel(now - hd.lastTurnEnd)}</Text> : null}</Text>

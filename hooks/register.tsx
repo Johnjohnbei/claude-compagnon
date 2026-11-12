@@ -31,7 +31,8 @@ const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
-const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, null, { shape: 'v1' })
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v1' })
+const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v1' })
 const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 /** When the main turn in flight began, 0 when none: the activity indicator's clock. */
@@ -49,6 +50,8 @@ let coldGuardTokens = 150_000
 let isBandShown = true
 /** The companion drawing beside the pane's head: on unless the `showCompanion` option is switched off. */
 let isCompanionShown = true
+/** `NO_COLOR` set and not empty (no-color.org): the companion is drawn in colour alone, so it is left out. Read at session start. */
+let isNoColor = false
 /** The classifier layer: on unless the `classify` option is switched off. */
 let isClassifierOn = true
 const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
@@ -61,6 +64,7 @@ export const register: Register = (on, options) => {
   coldGuardTokens = tokensOption(options.coldGuardTokens) ?? 150_000
   on('session.start', async ($, e, next) => {
     await initGuards($)
+    isNoColor = Boolean(await $.env.get('NO_COLOR').catch(() => undefined))
     await $.command.register({ name: 'compagnon', description: 'Compagnon pane (args: keepwarm [hours|off], handoff, decisions, load, errors)', argumentHint: '[keepwarm [h|off] | handoff | decisions | load | errors]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void quietly($, () => refreshRepos($))
@@ -117,7 +121,7 @@ export const register: Register = (on, options) => {
       await renewSession($)
       await Promise.all([
         update($, tasks, () => []), update($, goal, () => null), update($, keepWarm, () => null), update($, lastTurnEnd, () => 0),
-        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []), update($, turnStartedAt, () => 0), update($, lastTurnReason, () => null), update($, collisionAsk, () => null), update($, waiting, () => null),
+        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []), update($, turnStartedAt, () => 0), update($, lastTurnReason, () => null), update($, collisionAsk, () => ({})), update($, agents, () => []), update($, waiting, () => null),
       ])
     })
     return next(e)
@@ -230,5 +234,5 @@ export const register: Register = (on, options) => {
     return undefined // own failure: no band, never a broken prompt area
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, isCompanionShown, () => void refreshRepos($)))
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, isCompanionShown && !isNoColor, () => void refreshRepos($)))
 }

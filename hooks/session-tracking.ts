@@ -8,7 +8,7 @@ import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
 import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
 import { contextParts } from './load-report'
 import { cacheFromRelay, cacheState, costDelta, dayKey, errorText, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples } from './logic'
-import { activityOf, hasFreshFailure, isFinished, isMoving, moodOf, type Activity, type Mood, type TurnReason } from './mood'
+import { activityOf, hasFreshFailure, isBusy, isFinished, isInFlight, isMoving, moodOf, type Activity, type Mood, type TurnReason } from './mood'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -28,7 +28,7 @@ const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, {
 const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
 const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
 const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
-const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, null, { shape: 'v1' })
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v1' })
 const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
 
@@ -72,8 +72,12 @@ export async function readMood($: $): Promise<{ mood: Mood; isMoving: boolean; a
   const [now, ag, w, ask, started, ended, reason, errors] = await Promise.all([$.clock.now(), read($, agents), read($, waiting), read($, collisionAsk), read($, turnStartedAt), read($, lastTurnEnd), read($, lastTurnReason), errorsNow($)])
   const failures = [...ag.filter((a: { status: string }) => a.status === 'failed').map((a: { endedAt?: number; firstSeen: number }) => a.endedAt ?? a.firstSeen), ...errors.map(e => e.at)]
   const activity = activityOf(started, ended, ag, now, (reason ?? 'answer') as TurnReason)
-  const state = { isFailed: hasFreshFailure(failures, started, now), isWaiting: Boolean(w) || ask !== null, activity }
-  return { mood: moodOf(state), isMoving: isMoving(state), activity, waitAt: w?.at ?? ask?.at ?? null }
+  const asks = Object.values(ask ?? {})
+  const isWaiting = Boolean(w) || asks.length > 0
+  const state = { isFailed: hasFreshFailure(failures, started, now), isWaiting, activity }
+  // The wait counts from the oldest open question or the permission, whichever came first.
+  const waitAt = [...(w ? [w.at] : []), ...asks].reduce<number | null>((m, t) => (m === null || t < m ? t : m), null)
+  return { mood: moodOf(state), isMoving: isMoving({ isWaiting, isBusy: isBusy(started, ag, now) }), activity, waitAt }
 }
 
 let isAnimating = false
@@ -178,6 +182,8 @@ export async function refreshAgents($: $) {
       status: a.status,
       parentId: a.parentId,
       firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
+      // A run begins when the status enters running or waiting, carries on while it stays there, and is remembered once it ended (its duration).
+      runStart: isInFlight(a.status) ? (isInFlight(was.find(w => w.id === a.id)?.status ?? '') ? (was.find(w => w.id === a.id)?.runStart ?? was.find(w => w.id === a.id)?.firstSeen) : now) : was.find(w => w.id === a.id)?.runStart,
       // The moment it was first seen finished: the card shows how long it ran.
       endedAt: isFinished(a.status) ? (was.find(w => w.id === a.id)?.endedAt ?? now) : undefined,
     })),

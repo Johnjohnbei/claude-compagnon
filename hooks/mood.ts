@@ -6,8 +6,17 @@ const FINISHED_AGENT = new Set(['completed', 'failed', 'killed'])
 export const isFinished = (status: string): boolean => FINISHED_AGENT.has(status)
 /** An agent that is doing something now: a turn running, or held on its own work. `pending` has not started and `idle` (a teammate between turns) waits for a message: neither is in flight. */
 export const isInFlight = (status: string): boolean => status === 'running' || status === 'waiting'
-/** The agents the band, the sections and the mood count as active: one rule for all. */
+/** The agents the band and the sections count as active. */
 export const activeAgents = <A extends { status: string }>(list: A[]): A[] => list.filter(a => isInFlight(a.status))
+
+/** In flight for this long with no change of status: possibly stuck (a teammate whose pane died stays `running` for ever). */
+export const STUCK_MS = 600_000
+type Run = { status: string; firstSeen: number; runStart?: number }
+/** When the agent's current run began: it entered `running` or `waiting` then, not when it was first seen (a teammate idle for 40 min and woken is not 40 min in). */
+export const runStartOf = (a: Run): number => a.runStart ?? a.firstSeen
+export const isStuck = (a: Run, now: number): boolean => isInFlight(a.status) && now - runStartOf(a) > STUCK_MS
+/** The agents that make the session busy: in flight and not stuck. A stuck one is listed in amber and keeps nothing alive. */
+export const busyAgents = <A extends Run>(list: A[], now: number): A[] => list.filter(a => isInFlight(a.status) && !isStuck(a, now))
 
 /** How long `✓ done` (or an interruption) stays once the last turn or agent ended: gone by the next 15 s refresh or the one after. */
 export const DONE_MS = 20_000
@@ -23,21 +32,17 @@ export type Activity =
   | null
 /**
  * Whether Claude is busy: a main turn in flight (`turnStartedAt`, 0 when none) or an agent in flight; `since` is the earliest
- * of their starts. Nothing in flight: `done` for DONE_MS after the last end, or `ended` when the turn did not end in an answer
+ * of their run starts (an agent that is stuck counts for nothing). Nothing in flight: `done` for DONE_MS after the last end, or `ended` when the turn did not end in an answer
  * (interrupted for DONE_MS, refused or an API error for FRESH_FAILURE_MS), then nothing.
  */
-export function activityOf(turnStartedAt: number, lastTurnEnd: number, agents: Array<{ status: string; firstSeen: number; endedAt?: number }>, now: number, reason: TurnReason = 'answer'): Activity {
-  const starts = [...(turnStartedAt > 0 ? [turnStartedAt] : []), ...activeAgents(agents).map(a => a.firstSeen)]
-  if (starts.length > 0) return { state: 'working', since: Math.min(...starts) }
-  const lastAgentEnd = Math.max(0, ...agents.map(a => a.endedAt ?? 0))
-  const ended = Math.max(lastTurnEnd, lastAgentEnd)
-  if (ended <= 0) return null
-  // The reason belongs to the main turn: an agent that ended after it makes the end an ordinary one.
-  if (reason !== 'answer' && lastTurnEnd >= lastAgentEnd) {
-    const window = reason === 'aborted' ? DONE_MS : FRESH_FAILURE_MS
-    return now - lastTurnEnd < window ? { state: 'ended', at: lastTurnEnd, reason } : null
-  }
-  return now - ended < DONE_MS ? { state: 'done', at: ended } : null
+export function activityOf(turnStartedAt: number, lastTurnEnd: number, agents: Array<Run & { endedAt?: number }>, now: number, reason: TurnReason = 'answer'): Activity {
+  if (turnStartedAt > 0) return { state: 'working', since: Math.min(turnStartedAt, ...busyAgents(agents, now).map(runStartOf)) }
+  // The main turn's reason holds for its own window whatever the agents do after it (they keep the pane moving, not the face).
+  if (reason !== 'answer' && lastTurnEnd > 0 && now - lastTurnEnd < (reason === 'aborted' ? DONE_MS : FRESH_FAILURE_MS)) return { state: 'ended', at: lastTurnEnd, reason }
+  const busy = busyAgents(agents, now)
+  if (busy.length > 0) return { state: 'working', since: Math.min(...busy.map(runStartOf)) }
+  const ended = Math.max(lastTurnEnd, ...agents.map(a => a.endedAt ?? 0))
+  return ended > 0 && now - ended < DONE_MS ? { state: 'done', at: ended } : null
 }
 
 /** What the companion shows: the one state that sums the session up, by priority (see `moodOf`). */
@@ -55,5 +60,7 @@ export function moodOf(s: { isFailed: boolean; isWaiting: boolean; activity: Act
   if (s.isWaiting) return 'wait'
   return s.activity?.state === 'working' ? 'work' : s.activity?.state === 'done' ? 'done' : 'idle'
 }
+/** Whether something is in flight: a main turn, or an agent that is running and not stuck. */
+export const isBusy = (turnStartedAt: number, agents: Run[], now: number): boolean => turnStartedAt > 0 || busyAgents(agents, now).length > 0
 /** Whether the pane must be redrawn every frame: something is in flight or a prompt waits, whatever the mood says. */
-export const isMoving = (s: { isWaiting: boolean; activity: Activity }): boolean => s.isWaiting || s.activity?.state === 'working'
+export const isMoving = (s: { isWaiting: boolean; isBusy: boolean }): boolean => s.isWaiting || s.isBusy
