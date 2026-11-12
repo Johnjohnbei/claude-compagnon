@@ -13,11 +13,11 @@
 <rect x="600" y="52" width="420" height="40" rx="4" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.5"/>
 <text x="810.0" y="77.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">band:  … · ctx 41% · ⚠ 2</text>
 <rect x="600" y="100" width="420" height="40" rx="4" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.5"/>
-<text x="810.0" y="125.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">pane status line:  … · ⚠ 2 errors, last: tool.call: …</text>
+<text x="810.0" y="125.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">pane Errors row: ✕ 2, unfolded (e): ⚠ 2 errors, last: …</text>
 <path d="M420,128 L420,176" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
 <rect x="290" y="176" width="260" height="52" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
 <text x="420.0" y="198.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">/compagnon errors</text>
 <text x="420.0" y="216.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="normal" text-anchor="middle">date, time, message</text>
-<text x="24" y="262" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">The work goes on: a failing hook passes the prompt or the tool call through. The band and the pane status line count this</text>
+<text x="24" y="262" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">The work goes on: a failing hook passes the prompt or the tool call through. The band and the pane Errors row count this</text>
 <text x="24" y="282" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">session's errors; the command lists the last 20 of all sessions.</text>
 </svg>

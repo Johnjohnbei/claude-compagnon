@@ -8,26 +8,34 @@ A Claude Code mod that opens a side pane with every session, picks the model eac
 
 ## What you see
 
-![The Compagnon pane: model chain, watch cards, keys and band](assets/diagrams/panel.svg)
+![The Compagnon pane: compact rows by default, full cards with e](assets/diagrams/panel.svg)
 
-The pane has three parts:
+The pane opens **compact**: one row per subject, each with one key value.
 
-- **The model chain** at the top. `Advisor` counts the advisor's calls (its advice is encrypted, so only the call is visible). `Model` shows the main model, the cache countdown and the size Claude would reread if the cache went cold. `Decisions` shows the tier the last request got and which layer chose it. Three small cards follow the agents named `search`, `grep` and `audit`; other agents are counted below them. `Log` lists the last things the mod decided, and a status line sums up agents, advisor calls, decisions and cost.
-- **The watch cards**: `Context` (how full the context window is), `7-day plan` (your weekly plan usage and a 7-day curve), `Goal` (progress of `/goal` on the task list, hidden when there is no goal and no task), `Process` (long tools, background tasks, stuck agents, permission prompts, with `stop` and `view` buttons), `Parallelism` (reads done one after the other in the last turn), `Projects` (branch, changed files, commits ahead or behind, and edit collisions).
-- **The keys line** under the cards, and the **band**: one line above the prompt with the model, advisor calls, cost, context and running agents.
+| Row | Key value | Unfolded with `e` |
+| --- | --- | --- |
+| `Model` | the main model | the model chain: `Advisor` (the advisor's calls; its advice is encrypted, so only the call is visible), `Model` (cache countdown, the size Claude would reread if the cache went cold, effort, load), `Decisions` (the tier the last request got and which layer chose it), `Scouts` (the agents named `search`, `grep` and `audit`, one line each; other agents are counted), `Log` (the last things the mod decided) |
+| status line | `● working · 2m14` while a turn or an agent runs, `✓ done` for 10 s after, then agents, advisor calls, decisions and cost | the same line, under the chain |
+| `Context` | how full the context window is | gauge, tokens, handoff state |
+| `7-day plan` | your weekly plan usage | 7-day curve, reset time |
+| `Process` | how many tools, tasks and agents run, then `goal 3/5` and reads in series when there are | long tools, background tasks, stuck agents, permission prompts (`stop` and `view` buttons), the goal (progress of `/goal` on the task list) and the last turn's parallelism |
+| `Errors` | the mod's own errors this session, `none` or `✕ 2` | the last error message |
+| `Projects` | repositories touched, `+N` followed but untouched | branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
 
-A card stays quiet while all is well. When it needs a look, its border turns orange or red and `▲` precedes its value, so the state reads without colour too.
+Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents.
+
+Colours are kept to four, each with its symbol so a state reads without colour: neutral text and borders when all is well, the accent with `●` for what is active, amber with `▲` for what needs a look, red with `✕` for what failed. The band and `/compagnon errors` count the mod's own errors with `⚠`.
 
 When to act:
 
 | You see | Do |
 | --- | --- |
-| `Context` at 70 % or more: `↳ nearly full: /clear or handoff (h)` | Press `h`, then `c` when the handoff is ready. |
-| `Model`: `cold cache · rereads 120k` | Your next message rereads the whole context. Consider a handoff or a compaction first. |
-| `Process`: a tool, task or agent marked `↳` | Check it. `stop` ends a background task, `view` opens an agent. |
-| `Parallelism`: `4 reads in series` | Ask Claude to batch its reads or hand them to a subagent. |
-| `Projects`: `▲ file · "session"` | Another open session edited the same file. Coordinate before going on. |
-| Band or status line: `⚠ 2` | The mod hit an error. Run `/compagnon errors`. |
+| `Context ▲ 72%` (70 % or more), unfolded: `▲ nearly full: /clear or handoff (h)` | Press `h`, then `c` when the handoff is ready. |
+| `Model ▲ Opus 5.5 · cold cache`, unfolded: `▲ cold cache · rereads 120k` | Your next message rereads the whole context. Consider a handoff or a compaction first. |
+| `Process ▲` or `✕`: unfolded, a tool, task or agent marked `▲` or `✕` | Press `e` and check it. `stop` ends a background task, `view` opens an agent. |
+| `Process … · 4 reads in series` | Ask Claude to batch its reads or hand them to a subagent. |
+| `Projects ▲ 1 · collision`, unfolded: `▲ file · "session"` | Another open session edited the same file. Coordinate before going on. |
+| `Errors ✕ 2`, or `⚠ 2` in the band | The mod hit an error. Run `/compagnon errors`. |
 
 ## Quick start
 
@@ -103,7 +111,7 @@ Claude is told why the edit did not run: on `Cancel` it leaves the file alone an
 ![Errors: recorded, counted in the band, listed by a command](assets/diagrams/errors.svg)
 
 When one of the mod's own hooks fails, your prompt or tool call still goes through, and the failure is recorded.
-The band shows `⚠ 2`, the pane status line shows `⚠ 2 errors, last: <message>`.
+The band shows `⚠ 2`, the pane's `Errors` row shows `✕ 2`, and unfolded (`e`) `⚠ 2 errors, last: <message>`.
 Run `/compagnon errors` to read the list with dates and times.
 
 ## Commands
@@ -161,7 +169,7 @@ The reply starts like: `Startup load: 31.2k tokens, plus the conversation 55.0k 
 
 ### `/compagnon errors`
 
-Prints the mod's recorded errors, newest last, with date and time. Use it when the band or the status line shows `⚠`.
+Prints the mod's recorded errors, newest last, with date and time. Use it when the band shows `⚠` or the `Errors` row is not `none`.
 
 ```
 /compagnon errors
@@ -173,12 +181,13 @@ Reply: `No error recorded.` or `2 errors (last 20 kept, newest last):` followed 
 
 | Key | Label | Does |
 | --- | --- | --- |
+| `e` | `expand` / `collapse` | Unfolds every row into its full card, or folds them back. The pane opens compact with each session. |
 | `a` | `auto` / `auto off` | Turns automatic model choice off or on. Off returns the main loop to the session's own model. |
 | `k` | `keep warm` / `stop warming` | Keeps the cache warm for 2 hours, or stops it. |
 | `h` | `handoff` | Asks Claude for a handoff file. |
 | `c` | `restart from handoff` | Shown once the handoff is ready, in place of `h`: clears the session and restarts from the file. If Claude is still working, a notice asks you to press `c` again once the turn ends. |
 | `r` | `repos` | Reads the followed repositories again. |
-| `p` | `others` / `fold` | Shows or hides the followed repositories this session has not touched. Shown only when there are some. |
+| `p` | `others` / `fold` | Shows or hides the followed repositories this session has not touched. Shown only when there are some and the pane is unfolded. |
 
 ## Settings
 
@@ -254,6 +263,6 @@ No npm dependency: `validate` and `test` come with the CLI. The engine writes it
 
 ## Credits and license
 
-Built by [Coeurdar](https://coeurdar.com). The cold cache guard, keep warm and handoff are adapted from Cache Keeper, the collision guard from Collision Guard and the goal card from Goal Meter, all in [inematds/5-mods](https://github.com/inematds/5-mods) (MIT).
+Built by [Coeurdar](https://coeurdar.com). The cold cache guard, keep warm and handoff are adapted from Cache Keeper, the collision guard from Collision Guard and the goal line from Goal Meter, all in [inematds/5-mods](https://github.com/inematds/5-mods) (MIT).
 
 MIT license.
