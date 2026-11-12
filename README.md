@@ -176,7 +176,7 @@ Reply: `No error recorded.` or `2 errors (last 20 kept, newest last):` followed 
 | `a` | `auto` / `auto off` | Turns automatic model choice off or on. Off returns the main loop to the session's own model. |
 | `k` | `keep warm` / `stop warming` | Keeps the cache warm for 2 hours, or stops it. |
 | `h` | `handoff` | Asks Claude for a handoff file. |
-| `c` | `restart from handoff` | Shown once the handoff is ready, in place of `h`: clears the session and restarts from the file. Waits if Claude is still working. |
+| `c` | `restart from handoff` | Shown once the handoff is ready, in place of `h`: clears the session and restarts from the file. If Claude is still working, a notice asks you to press `c` again once the turn ends. |
 | `r` | `repos` | Reads the followed repositories again. |
 | `p` | `others` / `fold` | Shows or hides the followed repositories this session has not touched. Shown only when there are some. |
 
@@ -227,6 +227,15 @@ That is why the guards exist. Routing switches the model only when the cache is 
 - After a keep-warm ping, the status line's cache figures lag behind: the mod trusts the ping until the next expiry.
 - The model switch sends the tier name (`haiku`, `sonnet`, `opus`, `fable`) and lets the engine pick the version. No model id is written in the mod.
 - The agent cards show no percentage: the API gives none, so elapsed time stands in.
+
+### Adding a new model tier
+
+A new family (for example a new name next to Haiku, Sonnet, Opus and Fable) needs two linked edits:
+
+1. Add one row to the `TIERS` table in `hooks/tiers.ts`: its id, display name, default effort and classifier label.
+2. Add the same id to the `Tier` union in `types/index.d.ts`. It cannot be derived from the table, because the plugin contract must stay self-contained. A type check fails if the two disagree.
+
+A new version of an existing tier needs no edit: the version is read from the model id the engine returns.
 
 ## Development
 

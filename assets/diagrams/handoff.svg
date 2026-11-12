@@ -27,5 +27,5 @@
 <text x="896.0" y="133.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="normal" text-anchor="middle">reads the file</text>
 <text x="24" y="186" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">The file goes to ~/.claude/mods-data/compagnon/handoffs/. It holds the goal, the state, the decisions, the files touched,</text>
 <text x="24" y="206" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">what remains and how to verify. No file after the turn: a toast says so and the handoff is dropped.</text>
-<text x="24" y="226" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">c waits while Claude is still working.</text>
+<text x="24" y="226" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">c is refused while Claude is still working: press it again after the turn.</text>
 </svg>
