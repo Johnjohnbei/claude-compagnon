@@ -17,7 +17,7 @@ const KIND_NAME: Record<LogKind, string> = { route: 'route', advisor: 'advisor',
 
 export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[] = [], role?: string) {
   const { Text } = E
-  const current = pin ? pin.tier : tierOf(usage?.model ?? 'opus')
+  const current = pin ? pin.tier : tierOf(usage?.model ?? '')
   // The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone.
   const shown = usage && tierOf(usage.model) === current ? modelLabel(usage.model) : TIER_NAME[current]
   const level: Level = verdict.isCold || kw?.stopped ? 'warn' : 'ok'
