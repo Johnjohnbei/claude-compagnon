@@ -297,7 +297,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    // A subagent's end changes the Process card only.
+    // A subagent's end changes the RUNNING and DONE sections only.
     if (e.agentId) {
       await quietly($, () => refreshAgents($))
       return done

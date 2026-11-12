@@ -1,5 +1,5 @@
 // The chain, in the pane's Model slot: advisor, main session, decision layer, scouts, journal and status line (README).
-// Folded by default to the Model row and the status line, the same figures; `e` unfolds it.
+// Folded by default to the Model row, the status line's figures in its note; `e` unfolds it.
 import type { RenderChildren } from 'claude-code'
 
 import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, Tier, TurnCost, Usage } from '../types'
@@ -125,7 +125,7 @@ function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: str
   return <Text dimColor wrap="truncate-end">{' '.repeat(Math.floor(width / 2))}{arrow} {label}</Text>
 }
 
-/** The status line, the chain folded to one line: the agents running, the advisor's calls, the decisions, the cost. What runs now is in the head and the sections above. */
+/** The status line under the unfolded chain: the agents running, the advisor's calls, the decisions, the cost. What runs now is in the head and the sections above. */
 export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[]) {
   const { Text } = E
   return <Text dimColor wrap="truncate-end">agents [{activeAgents(agents).length} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
