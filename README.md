@@ -58,7 +58,7 @@ Le mod reconnaît le besoin de chaque demande par mots-clés (aucun token dépen
 
 Quand la bascule est refusée par le cache, la délégation est imposée : un sous-agent généraliste lancé sans modèle reçoit le palier choisi (un modèle donné par l'appel, un agent nommé, un fork ou un coéquipier ne sont pas touchés).
 
-Aucun identifiant de modèle ni numéro de version n'est écrit dans le mod. La bascule envoie le nom du palier (`fable`, `opus`, `sonnet`, `haiku`) : le moteur le résout vers la version recommandée du moment, et `ANTHROPIC_DEFAULT_OPUS_MODEL` (et ses équivalents) le redirige ou le fige. La version affichée dans la card Modèle est lue dans l'identifiant que le moteur renvoie, pas dans le mod. Une nouvelle release de modèle ne demande donc aucun changement ici. La ligne « nouvelle version » de la card n'apparaît que si l'identifiant renvoyé pour un palier est plus récent que celui mémorisé : un identifiant plus ancien (repli du moteur sur un pas, autre fenêtre dont l'alias résout encore vers la release précédente, constaté le 2026-11-07 avec `opus` donnant Opus 5 et Opus 5.5 en parallèle) est ignoré. Non vérifié : si `ANTHROPIC_DEFAULT_*_MODEL` s'applique à un alias envoyé par un mod (la doc ne le dit pas).
+Aucun identifiant de modèle ni numéro de version n'est écrit dans le mod. La bascule envoie le nom du palier (`fable`, `opus`, `sonnet`, `haiku`) : le moteur le résout vers la version recommandée du moment, et `ANTHROPIC_DEFAULT_OPUS_MODEL` (et ses équivalents) le redirige ou le fige. La version affichée dans la card Modèle est lue dans l'identifiant que le moteur renvoie, pas dans le mod. Une nouvelle release de modèle ne demande donc aucun changement ici. La ligne « nouvelle version » de la card n'apparaît que si l'identifiant renvoyé pour un palier est plus récent que celui mémorisé : un identifiant plus ancien (repli du moteur sur un pas, autre fenêtre dont l'alias résout encore vers la release précédente, constaté le 2026-11-07 avec `opus` donnant deux releases successives dans deux sessions ouvertes en parallèle) est ignoré. Non vérifié : si `ANTHROPIC_DEFAULT_*_MODEL` s'applique à un alias envoyé par un mod (la doc ne le dit pas).
 
 Les paliers vivent dans une seule table, `TIERS` (`hooks/logic.ts`) : identifiant, rang, nom affiché, effort par défaut et libellé du classifieur. Le type `Tier`, les rangs, les noms, la détection dans l'identifiant renvoyé par le moteur et les libellés du classifieur en dérivent : un nouveau palier ou une nouvelle famille de modèles demande une ligne dans cette table et son identifiant dans le type `Tier` de `types/index.d.ts` (ce fichier de contrat ne peut rien importer : la vérification de types refuse un palier présent d'un côté seulement), plus ses mots-clés dans les règles s'il en a. Un test vérifie que chaque palier cité par les règles et le classifieur existe dans la table, et qu'un identifiant inconnu retombe sur Opus.
 
@@ -101,7 +101,7 @@ claude plugin install compagnon --marketplace Johnjohnbei/claude-compagnon
 
 Dans l'application de bureau, où `/plugin` ne s'exécute pas : cliquer sur + à côté de la zone de saisie, puis Plugins, Add marketplace avec `Johnjohnbei/claude-compagnon`, puis Add plugin.
 
-Le dépôt est privé : l'installation ne marche que pour un compte GitHub qui peut le lire, sur une machine qui a déjà un accès git à github.com (clé SSH, ou `gh auth login` puis `gh auth setup-git`).
+Le dépôt est public : aucun compte ni accès GitHub particulier n'est demandé, il suffit que `git` soit installé.
 
 ## Réglages
 
@@ -109,6 +109,7 @@ Options (réglables dans `/config`, rangée du plugin) :
 
 - `projects` : chemins absolus des dépôts à suivre, séparés par `;`. Vide : le projet de la session seulement.
 - `showBand` : le bandeau d'une ligne au-dessus de la saisie (coché par défaut) ; décocher pour ne garder que le panneau.
+- `classify` : le classifieur des demandes que les mots-clés ne reconnaissent pas (coché par défaut, voir « Classement des demandes ») ; décocher pour garder les mots-clés seuls.
 - `coldGuardTokens` : taille de contexte au-delà de laquelle un envoi sur cache froid demande d'abord (`150000` ou `150k`) ; `0` coupe la garde.
 
 ## Chiffres du cache
@@ -139,6 +140,8 @@ Sans ce relais, le mod suppose le cache chaud pendant 1 h après le dernier tour
 claude plugin validate .
 claude plugin test .
 ```
+
+Aucune dépendance npm : `validate` et `test` sont fournis par la CLI. Pour la vérification de types, le moteur écrit les types de l'API (`claude-code`) et le `tsconfig.json` que celui du dépôt étend dans `.claude-plugin/types/`, quand il charge le mod depuis ce dossier en session interactive (`claude --plugin-dir .`) ; ensuite `npx -p typescript tsc -p .` (TypeScript 5.4 ou plus récent). Ce dossier est généré : git l'ignore. En `claude -p`, il n'est pas écrit.
 
 ## Contrat avec claude-config
 

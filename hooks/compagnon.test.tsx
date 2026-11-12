@@ -264,7 +264,7 @@ const STATE: Record<string, unknown> = {
     { dir: 'C:/Users/me/GitHub/projet-d', name: 'projet-d', branch: 'main', ahead: 0, behind: 0, dirty: 0, hasUpstream: true },
   ],
   usedRepos: ['C:/Users/me/GitHub/projet-c'],
-  collisions: [{ file: 'ArkButton.tsx', who: 'refonte hub mobile', at: LIVE - 420_000 }],
+  collisions: [{ file: 'Bouton.tsx', who: 'refonte hub mobile', at: LIVE - 420_000 }],
   goal: { condition: 'les 18 warnings exhaustive-deps corrigés, gates verts', startedAt: LIVE - 1_800_000 },
   seen: { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' },
   advisor: { calls: 2, lastAt: LIVE - 120_000, pending: 0 },
@@ -302,7 +302,7 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   on('clock.now', () => ({ value: LIVE }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet$/, /^2\/4$/, /ArkButton\.tsx · « refonte hub mobile »/, /Bash 2 min · 2 agents/, /148 k \/ 200 k/]) {
+  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet$/, /^2\/4$/, /Bouton\.tsx · « refonte hub mobile »/, /Bash 2 min · 2 agents/, /148 k \/ 200 k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
   // a collision turns the Projets card's key value into ▲ 1
