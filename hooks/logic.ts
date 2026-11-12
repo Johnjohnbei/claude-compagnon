@@ -232,11 +232,6 @@ export const delegationHint = (d: Decision, need: string): string =>
 /** Usage thresholds used by ccusage and most status lines: green under 70 %, red from 90 %. */
 export const levelOf = (pct: number): Level => (pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok')
 
-export const bar = (pct: number, width: number): string => {
-  const full = Math.max(0, Math.min(width, Math.round((pct / 100) * width)))
-  return '█'.repeat(full) + '░'.repeat(width - full)
-}
-
 const TICKS = '▁▂▃▄▅▆▇█'
 export const sparkline = (values: number[]): string =>
   values.map(v => TICKS[Math.max(0, Math.min(7, Math.floor((v / 100) * 7.99)))]).join('')
