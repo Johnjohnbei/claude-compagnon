@@ -4,11 +4,11 @@ import type { EngineInterface } from 'claude-code'
 
 import type { RouteRecord } from '../types'
 import type { El } from './card-frame'
-import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
+import { Band, ContextCard, ErrorsCard, KeysLine, PlanCard, ProcessCard, ProjectsCard } from './cards'
 import { Schema } from './chain-schema'
 import { askHandoff, continueFromHandoff, setKeepWarm } from './guards'
 import { TIER_NAME, modelLabel } from './tiers'
-import { activeAgents, ttlMs, type DailySamples } from './logic'
+import { activeAgents, activityOf, ttlMs, type DailySamples } from './logic'
 import { errorsNow, quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
@@ -35,6 +35,10 @@ const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [],
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
 const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
 const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
+const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
+const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
+/** Compact (one row per subject) unless `e` unfolded the pane; owned here, the only module that reads or flips it. */
+const isExpanded = atom({ plugin: 'compagnon', key: 'isExpanded' } as const, false, { shape: 'v1' })
 
 type $ = EngineInterface
 
@@ -47,7 +51,7 @@ export async function renderBand($: $, E: El) {
   return Band(E, label, adv, total, u ? u.contextPct : null, activeAgents(ag).length, (await errorsNow($)).length)
 }
 
-/** The pane, `columns` wide: the chain, the cards, the keys. `refreshRepos` is the `r` key. */
+/** The pane, `columns` wide: the chain, the cards, the keys; compact until `e`. `refreshRepos` is the `r` key. */
 export async function renderPane($: $, E: El, columns: number, refreshRepos: () => void) {
   await read($, tick)
   const now = await $.clock.now()
@@ -62,6 +66,9 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const [log, turnCosts, adv, parts, seenIds] = await Promise.all([read($, journal), read($, costs), read($, advisor), read($, ctxParts), read($, seen)])
   const routes = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
   const errors = await errorsNow($)
+  const [started, ended, isOpenAll] = await Promise.all([read($, turnStartedAt), read($, lastTurnEnd), read($, isExpanded)])
+  const activity = activityOf(started, ended, ag, now)
+  const mode = { isCompact: !isOpenAll }
   const width = Math.min(64, columns)
   const ttl = ttlMs(c)
   // The countdown counts a keep-warm ping too: the status line's expiry is stale after one.
@@ -71,14 +78,14 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const { Box } = E
   return (
     <Box flexDirection="column">
-      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, errors, now })}
-      {ContextCard(E, width, u, ho)}
-      {PlanCard(E, width, u, samples, now)}
-      {GoalCard(E, width, g, taskList, now)}
-      {ProcessCard(E, width, now, run, bg, ag, w, id => void stopTask($, id), id => $.ui.view({ agentId: id }))}
-      {ParallelCard(E, width, par)}
-      {ProjectsCard(E, width, rp, used, clash, now, isOpen)}
-      {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen }, {
+      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, activity, isExpanded: Boolean(isOpenAll), now })}
+      {ContextCard(E, width, u, ho, mode)}
+      {PlanCard(E, width, u, samples, now, mode)}
+      {ProcessCard(E, width, now, { running: run, tasks: bg, agents: ag, waiting: w, parallel: par, goal: g, taskList, activity }, id => void stopTask($, id), id => $.ui.view({ agentId: id }), mode)}
+      {ErrorsCard(E, width, errors, mode)}
+      {ProjectsCard(E, width, rp, used, clash, now, isOpen, mode)}
+      {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen, isExpanded: Boolean(isOpenAll) }, {
+        expand: () => void update($, isExpanded, v => !v),
         auto: async () => {
           await $.store.set('auto', !isAuto)
           if (isAuto) await update($, pin, () => null) // off = back to the session's own model

@@ -1,12 +1,31 @@
-// The bordered card every block of the pane is drawn in, its gauge, its colours, and the figure formats the cards share.
+// The bordered card every block of the pane is drawn in, its one-row compact form, its gauge, its tones, and the figure
+// formats the cards share.
 import type { Elements, RenderChildren } from 'claude-code'
 
 import type { Level } from '../types'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
-export const COLOR: Record<Level, string> = { ok: 'success', warn: 'warning', alert: 'error' }
+/**
+ * What a value or a line says beyond "all is well": `active` (something runs), the levels that need a look, `error` (something
+ * failed). Each tone has its symbol, so it reads without colour: one neutral, one accent, one amber, red for failures only.
+ */
+export type Tone = Level | 'active' | 'error'
+export const ACCENT = 'suggestion'
+export const TONE: Record<Tone, { mark: string; color?: string }> = {
+  ok: { mark: '' },
+  active: { mark: '● ', color: ACCENT },
+  warn: { mark: '▲ ', color: 'warning' },
+  alert: { mark: '▲ ', color: 'warning' },
+  error: { mark: '✕ ', color: 'error' },
+}
+/** Stronger tone first: a card shows the strongest of its parts. */
+const RANK: Tone[] = ['error', 'alert', 'warn', 'active', 'ok']
+export const strongest = (...tones: Tone[]): Tone => RANK.find(t => tones.includes(t)) ?? 'ok'
+
 const GAUGE = 10
+/** The compact row's title column: the longest title ("7-day plan") and one space. */
+const TITLE_COL = 11
 
 export const k = (tokens: number) => `${Math.round(tokens / 1000)}k`
 export const usd = (n: number) => `$${n.toFixed(2)}`
@@ -18,21 +37,29 @@ export const gauge = (pct: number, width = GAUGE): string => {
   return '▰'.repeat(full) + '▱'.repeat(width - full)
 }
 
+export type CardMode = { isCompact?: boolean; note?: string | null }
+
 /**
- * One card, `width` columns wide: `╭─ Title ──── value ─╮`, its lines between `│ … │`, then `╰───╯`.
- * The chain's blocks (role set) are drawn in their role's colour; the others stay quiet until a state needs a look.
+ * One card, `width` columns wide: `╭─ Title ──── value ─╮`, its lines between `│ … │`, then `╰───╯`. Compact, the same
+ * card is one row, `Title      value · note`, its lines folded away (the `e` key unfolds them).
+ * The border stays neutral; a tone shows on the value only, with its symbol.
  * Never wider than `width`: a floor wider than the pane spilled past its edge on a narrow terminal.
  */
-export function Card(E: El, width: number, title: string, value: string, level: Level, lines: RenderChildren[], role?: string) {
+export function Card(E: El, width: number, title: string, value: string, tone: Tone, lines: RenderChildren[], mode: CardMode = {}) {
   const { Box, Text } = E
   const w = Math.max(8, width)
-  // The border carries the role's colour (the chain's blocks) or stays quiet and takes the state's colour (the other cards).
-  // A state that needs a look adds ▲ before the value, in the state's colour: it reads without the colour, and on a role card
-  // whose border keeps the role's colour.
-  const border = role ?? (level === 'ok' ? undefined : COLOR[level])
-  const isMarked = level !== 'ok'
-  const shown = `${isMarked ? '▲ ' : ''}${value}`
-  const valueColor = isMarked ? COLOR[level] : border
+  const t = TONE[tone]
+  const shown = `${t.mark}${value}`
+  if (mode.isCompact)
+    return (
+      <Box width={w}>
+        <Text wrap="truncate-end">
+          <Text>{title.padEnd(TITLE_COL)}</Text>
+          <Text color={t.color} bold>{shown}</Text>
+          {mode.note ? <Text dimColor> · {mode.note}</Text> : null}
+        </Text>
+      </Box>
+    )
   // Too narrow for both: the title gives way, never the value (a cut line would lose the figure and the corner).
   const room = w - (shown === '' ? 7 : shown.length + 9)
   const label = title.length <= room ? title : `${title.slice(0, Math.max(0, room - 1))}…`
@@ -40,20 +67,20 @@ export function Card(E: El, width: number, title: string, value: string, level: 
   return (
     <Box flexDirection="column" width={w}>
       <Text wrap="truncate-end">
-        <Text color={border} dimColor={!border}>╭─ </Text>
+        <Text dimColor>╭─ </Text>
         <Text bold>{label}</Text>
-        <Text color={border} dimColor={!border}> {'─'.repeat(fill)}{shown === '' ? '' : ' '}</Text>
-        {shown === '' ? null : <Text color={valueColor} bold>{shown}</Text>}
-        <Text color={border} dimColor={!border}>{shown === '' ? '─╮' : ' ─╮'}</Text>
+        <Text dimColor> {'─'.repeat(fill)}{shown === '' ? '' : ' '}</Text>
+        {shown === '' ? null : <Text color={t.color} bold>{shown}</Text>}
+        <Text dimColor>{shown === '' ? '─╮' : ' ─╮'}</Text>
       </Text>
       {lines.filter(Boolean).map(l => (
         <Box width={w}>
-          <Text color={border} dimColor={!border}>│ </Text>
+          <Text dimColor>│ </Text>
           <Box width={w - 4} flexShrink={0}>{l}</Box>
-          <Text color={border} dimColor={!border}> │</Text>
+          <Text dimColor> │</Text>
         </Box>
       ))}
-      <Text color={border} dimColor={!border}>╰{'─'.repeat(w - 2)}╯</Text>
+      <Text dimColor>╰{'─'.repeat(w - 2)}╯</Text>
     </Box>
   )
 }

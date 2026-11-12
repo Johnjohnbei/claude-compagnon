@@ -34,6 +34,8 @@ const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, {
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
+/** When the main turn in flight began, 0 when none: the activity indicator's clock. */
+const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
 
 const REPOS_MS = 60_000
 
@@ -140,7 +142,7 @@ export const register: Register = (on, options) => {
       await renewSession($)
       await Promise.all([
         update($, tasks, () => []), update($, goal, () => null), update($, keepWarm, () => null), update($, lastTurnEnd, () => 0),
-        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []),
+        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []), update($, turnStartedAt, () => 0),
       ])
     })
     return next(e)
@@ -286,6 +288,8 @@ export const register: Register = (on, options) => {
     if (!e.agentId)
       await quietly($, async () => {
         await update($, isWorking, () => true)
+        const at = await $.clock.now()
+        await update($, turnStartedAt, () => at)
         await noteTurnStart($)
       })
     return next(e)
@@ -303,6 +307,7 @@ export const register: Register = (on, options) => {
     }
     await quietly($, async () => {
       await update($, isWorking, () => false)
+      await update($, turnStartedAt, () => 0)
       await checkHandoff($)
     })
     // After `next`: a failure here must not lose the turn's result (it used to throw past it).

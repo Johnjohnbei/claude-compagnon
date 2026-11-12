@@ -1,10 +1,10 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock, test, type TestBody } from 'claude-code/testing'
 
 import type { CacheInfo, ErrorEntry, Ledger, LogEntry } from '../types'
 import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLabel, releaseOf, versionOf } from './tiers'
 import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { chargeReport, contextParts } from './load-report'
-import { activeAgents, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
+import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -257,16 +257,24 @@ const PANE = {
   props: { title: 'Compagnon', isFocused: false, bodyColumns: 50, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} },
 } as const
 
-test('the pane draws its cards before any measure', async ($, on) => {
+test('the pane opens compact before any measure: one row per subject, and e unfolds it into cards and back', async ($, on) => {
   on('store.get', () => ({ value: undefined }))
   on('clock.now', () => ({ value: NOW }))
   on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  for (const title of ['Model', 'Context', '7-day plan', 'Process', 'Parallelism', 'Projects']) {
-    // the title sits in the card's top border: ╭─ Title ─…
+  const rows = [/^Model {6}\S/, /^Context {4}…$/, /^7-day plan …$/, /^Process {4}idle/, /^Errors {5}none$/, /^Projects {3}0$/]
+  for (const row of rows) expect((await ui.find({ type: 'Text', text: row }))?.text).toMatch(row)
+  expect(await ui.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
+  expect((await ui.find({ type: 'Button', key: 'expand' }))?.props.label).toBe('expand')
+  await ui.press({ key: 'expand' })
+  for (const title of ['Model', 'Context', '7-day plan', 'Process', 'Errors', 'Projects', 'Advisor', 'Decisions', 'Scouts', 'Log']) {
+    // unfolded, the title sits in the card's top border: ╭─ Title ─…
     const top = new RegExp(`^╭─ ${title} ─`)
     expect((await ui.find({ type: 'Text', text: top }))?.text).toMatch(top)
   }
+  expect((await ui.find({ type: 'Button', key: 'expand' }))?.props.label).toBe('collapse')
+  await ui.press({ key: 'expand' })
+  expect(await ui.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
   await ui.unmount()
 })
 
@@ -318,30 +326,34 @@ const STATE: Record<string, unknown> = {
   ],
 }
 
+/** The busy state with the pane unfolded (`e`): the full detail of every card. */
+const OPEN: Record<string, unknown> = { ...STATE, isExpanded: true }
 
 test('a busy session reads in plain words: cache countdown, keep-warm, goal, collision', async ($, on) => {
   const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: 'v1', value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
   on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /kept warm/, /handed to Sonnet$/, /^2\/4$/, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
+  for (const words of [/^ {2}50 min$/, /● kept warm/, /handed to Sonnet$/, /^goal 2\/4 ▰/, /^parallel 4\/12 /, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
   // a collision turns the Projects card's key value into ▲ 1
   expect((await ui.find({ type: 'Text', text: /^╭─ Projects ─+ ▲ 1 ─╮$/ }))?.text).toMatch(/▲ 1/)
-  // the chain: advisor, the main session with what it loads, the decision layer, the scouts, the journal, the status line
+  // the chain: advisor, the main session with what it loads, the decision layer, the scouts (one card), the journal, the status line
   for (const words of [
     /^╭─ Advisor ─+ ▲ 2 calls ─╮$/, /^2 min ago$/, /~72% of the cost \(advisor\)/,
     /seen: Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5/, /^tools 28k · skills 9k · prompt 2k$/,
     /^╭─ Decisions ─+ 2 ─╮$/, /keywords 1 · classifier 1 · default 0/, /switches to this tier/,
-    /^╭─ search ─+╮$/, /^╭─ grep ─+╮$/, /^╭─ audit ─+╮$/, /^● 0:42$/, /^✓ 0:18$/, /^· idle$/,
+    /^╭─ Scouts ─+ ● 1 running ─╮$/, /^● search 0:42 · map$/, /^✓ grep {3}0:18 · calls$/, /^· audit {2}idle · review$/,
+    // the activity: the earliest agent still running started 3 min 20 s ago
+    /^● working · 3m20$/,
     /^consulted$/, /^Debugging: Opus, effort high$/,
     /agents \[2 active\] · advisor \[2 calls\] · decisions \[2\] · cost \$0\.29/,
   ]) {
@@ -448,31 +460,32 @@ test('the routing record keeps the first words only, the last two hundred, and r
   expect(report).toContain('corrige ceci')
 })
 
-test('wide pane: the advisor sits beside the main session, the three scouts side by side', async ($, on) => {
+test('wide pane: the advisor sits beside the main session, the scouts under them with what each is for', async ($, on) => {
   const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: 'v1', value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
   on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 100 }, surface: 'terminal' } as never)
-  for (const title of ['Advisor', 'Model', 'Decisions', 'search', 'grep', 'audit']) {
+  for (const title of ['Advisor', 'Model', 'Decisions', 'Scouts']) {
     const top = new RegExp(`^╭─ ${title} ─`)
     expect((await ui.find({ type: 'Text', text: top }))?.text).toMatch(top)
   }
   expect((await ui.find({ type: 'Text', text: /↓ subagents/ }))?.text).toMatch(/↓ subagents/)
+  expect((await ui.find({ type: 'Text', text: /^● search 0:42 · maps the repository$/ }))?.text).toMatch(/maps the repository/)
   await ui.unmount()
 })
 
-test('a narrow pane: no card spills past its width, the scouts stack, and a state reads without its colour', async ($, on) => {
+test('a narrow pane: no card spills past its width, compact or unfolded, and a state reads without its colour', async ($, on) => {
   const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: 'v1', value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
@@ -483,10 +496,25 @@ test('a narrow pane: no card spills past its width, the scouts stack, and a stat
     const borders = await ui.findAll({ type: 'Text', text: /^[╭╰]─.*[╮╯]$/ })
     expect(borders.length).toBeGreaterThan(8)
     expect(borders.map(b => b.text).filter(t => t.length > columns)).toEqual([])
-    // three scouts cannot sit side by side: each takes the pane's width
-    expect((await ui.find({ type: 'Text', text: /^╭─ search ─+╮$/ }))?.text.length).toBe(columns)
+    // the scouts' one card takes the pane's width; its title gives way first, never its value
+    expect((await ui.find({ type: 'Text', text: /● 1 running ─╮$/ }))?.text.length).toBe(columns)
     // the context card past 70 % shows ▲ before its value, not only an orange border
     expect((await ui.find({ type: 'Text', text: /^╭─ Context ─+ ▲ 74% ─╮$/ }))?.text).toMatch(/▲ 74%/)
+    await ui.unmount()
+  }
+})
+
+test('a narrow compact pane keeps every row inside its width and its key value readable', async ($, on) => {
+  mockState(on, STATE)
+  for (const columns of [40, 24]) {
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
+    for (const row of [/^Context {4}▲ 74%$/, /^Errors {5}none$/, /^Projects {3}▲ 1/]) {
+      const found = await ui.find({ type: 'Text', text: row })
+      expect(found?.text).toMatch(row)
+    }
+    // the Box around each row holds it to the pane: no row is given more than the pane's width
+    const boxes = (await ui.findAll({ type: 'Box' })).map(b => b.props.width).filter((w): w is number => typeof w === 'number')
+    expect(boxes.filter(w => w > columns)).toEqual([])
     await ui.unmount()
   }
 })
@@ -702,8 +730,12 @@ test('a failed refresh is recorded and shown on the status line, a good loop add
   await clock.advance(15_000)
   expect((await errorLog()).length).toBe(2) // the loop went on past the first error
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const line = /agents \[0 active\] .* · ⚠ 2 errors, last: no implementation for agent\.list$/
-  expect((await ui.find({ type: 'Text', text: line }))?.text).toMatch(line)
+  // compact: the Errors row says how many, in red with ✕; unfolded, the card says the last one
+  const row = await ui.find({ type: 'Text', text: /^Errors {5}✕ 2$/ })
+  expect(row?.text).toMatch(/✕ 2$/)
+  await ui.press({ key: 'expand' })
+  const line = /^⚠ 2 errors, last: no implementation for agent\.list$/
+  expect((await ui.find({ type: 'Text', text: line }))?.props.color).toBe('error')
   await ui.unmount()
   const band = await $.ui.mount({
     plugin: 'compagnon',
@@ -724,7 +756,7 @@ test('the band and the status line count the same active agents: an ended one (c
   const everyStatus = statuses.map((status, i) => ({ id: `a${i}`, label: `agent ${status}`, type: 'general-purpose', status, firstSeen: LIVE - 60_000 }))
   expect(activeAgents(everyStatus).map(a => a.status)).toEqual(['running', 'waiting', 'idle', 'pending'])
   for (const status of ['completed', 'failed', 'killed']) expect(isFinished(status)).toBe(true)
-  const state: Record<string, unknown> = { ...STATE, agents: everyStatus }
+  const state: Record<string, unknown> = { ...OPEN, agents: everyStatus }
   const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
@@ -743,11 +775,100 @@ test('the band and the status line count the same active agents: an ended one (c
   const bandCount = (await band.find({ type: 'Text', text: /agents \d+$/ }))?.text.match(/agents (\d+)$/)?.[1]
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const lineCount = (await pane.find({ type: 'Text', text: /^agents \[\d+ active\]/ }))?.text.match(/^agents \[(\d+) active\]/)?.[1]
-  // the failed agent still raises the Process card, which counts 4 agents running, not 5
-  expect((await pane.find({ type: 'Text', text: /^╭─ Process ─+ ▲ \d+ running ─╮$/ }))?.text).toMatch(/▲ 5 running/) // 4 agents + the Bash call
-  expect((await pane.find({ type: 'Text', text: /agent failed · failed/ }))?.text).toMatch(/agent failed · failed/)
+  const lineCount = (await pane.find({ type: 'Text', text: /agents \[\d+ active\]/ }))?.text.match(/agents \[(\d+) active\]/)?.[1]
+  // the failed agent still raises the Process card (✕, a failure), which counts 4 agents running, not 5
+  expect((await pane.find({ type: 'Text', text: /^╭─ Process ─+ ✕ \d+ running ─╮$/ }))?.text).toMatch(/✕ 5 running/) // 4 agents + the Bash call
+  expect((await pane.find({ type: 'Text', text: /^✕ agent failed · failed/ }))?.props.color).toBe('error')
   await pane.unmount()
   expect(bandCount).toBe('4')
   expect(lineCount).toBe(bandCount)
+})
+
+/** The state hook a pane test uses, registered once: the state `of` gives at each read, each key's own default otherwise. */
+function mockState(on: Parameters<TestBody>[1], of: Record<string, unknown> | (() => Record<string, unknown>), now = () => LIVE) {
+  const current = typeof of === 'function' ? of : () => of
+  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  on('state.get', (_, e) => {
+    const key = (e as unknown as { key: string }).key
+    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark', 'turnStartedAt'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking', 'isExpanded'].includes(key) ? false : null
+    const state = current()
+    return { value: { value: { shape: 'v1', value: key in state ? state[key] : fallback }, version: 1 } }
+  })
+  on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
+  on('clock.now', () => ({ value: now() }))
+  on('session.id', () => ({ value: 'session-1' }))
+}
+
+test('compact, each subject is one row with its key value, and the detail waits behind e', async ($, on) => {
+  mockState(on, STATE)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const row of [
+    /^Model {6}Opus 5\.5$/, /^Context {4}▲ 74%$/, /^7-day plan 41%$/,
+    // Goal and Parallelism are folded into the Process row: its value, then the goal, then what needs a look
+    /^Process {4}▲ 3 running · goal 2\/4 · 5 reads in series$/,
+    /^Errors {5}none$/, /^Projects {3}▲ 1 · collision$/,
+    // the chain folded to the status line, the same figures
+    /^● working · 3m20 · agents \[2 active\] · advisor \[2 calls\] · decisions \[2\] · cost \$0\.29$/,
+  ]) expect((await ui.find({ type: 'Text', text: row }))?.text).toMatch(row)
+  // no bordered card, no detail line: they are folded, not lost
+  expect(await ui.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
+  for (const detail of [/Bouton\.tsx/, /148k \/ 200k/, /keywords 1 · classifier 1/, /^consulted$/]) expect(await ui.find({ type: 'Text', text: detail })).toBe(undefined)
+  // `p` folds a list only the unfolded Projects card shows
+  expect(await ui.find({ type: 'Button', key: 'fold' })).toBe(undefined)
+  await ui.unmount()
+})
+
+/** A healthy session: nothing needs a look, a keep-warm and a scout running (the accent's two uses). */
+const HEALTHY: Record<string, unknown> = {
+  ...STATE,
+  usage: { model: 'claude-opus-5-5', contextPct: 32, contextTokens: 64_000, contextWindow: 200_000, limits: [{ kind: 'seven_day', percentUsed: 20, resetsAt: '2026-11-08T09:00:00Z' }], costUsd: 0 },
+  running: [], collisions: [], costs: [{ at: LIVE - 600_000, usd: 0.08, tier: 'sonnet', advisorCalls: 0 }],
+  agents: [{ id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 42_000 }],
+  parallel: { total: 12, overlapped: 10, sequentialReads: 1, agents: 1 },
+  repos: [{ dir: 'C:/Users/me/GitHub/projet-c', name: 'projet-c', branch: 'main', ahead: 0, behind: 0, dirty: 3, hasUpstream: true }],
+  journal: [{ at: LIVE - 30_000, kind: 'route', text: 'Debugging: Opus, effort high' }],
+}
+
+test('a healthy pane uses the neutral text and the one accent only, compact and unfolded', async ($, on) => {
+  let isExpanded = false
+  mockState(on, () => ({ ...HEALTHY, isExpanded }))
+  for (const unfolded of [false, true]) {
+    isExpanded = unfolded
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const colors = new Set((await ui.findAll({ type: 'Text' })).map(t => t.props.color))
+    expect([...colors].filter(c => c !== undefined && c !== 'suggestion')).toEqual([])
+    // the accent marks what is active, with its symbol: the scout running, the work in flight
+    expect((await ui.find({ type: 'Text', text: /^● working · 0m42$/ }))?.props.color).toBe('suggestion')
+    await ui.unmount()
+  }
+})
+
+test('the activity reads working while a turn or an agent runs, done for a few seconds after, then nothing', async ($, on) => {
+  const agent = { status: 'running', firstSeen: LIVE - 134_000 }
+  expect(activityOf(0, 0, [agent], LIVE)).toEqual({ state: 'working', since: LIVE - 134_000 })
+  expect(activityOf(LIVE - 20_000, 0, [], LIVE)).toEqual({ state: 'working', since: LIVE - 20_000 })
+  expect(activityOf(LIVE - 20_000, 0, [agent], LIVE)).toEqual({ state: 'working', since: LIVE - 134_000 }) // the earliest start
+  const ended = { status: 'completed', firstSeen: LIVE - 134_000, endedAt: LIVE - 3_000 }
+  expect(activityOf(0, 0, [ended], LIVE)).toEqual({ state: 'done' })
+  expect(activityOf(0, LIVE - 2_000, [], LIVE)).toEqual({ state: 'done' }) // a main turn that just ended
+  expect(activityOf(0, 0, [ended], LIVE - 3_000 + DONE_MS)).toBe(null)
+  expect(activityOf(0, 0, [], LIVE)).toBe(null) // nothing ever ran
+  expect(elapsedLabel(134_000)).toBe('2m14')
+  expect(elapsedLabel(5_400_000)).toBe('90m00')
+  // the pane: the status line and the Process card say it, then it goes
+  let now = LIVE
+  const base = { ...STATE, running: [], tasks: [], goal: null }
+  let state: Record<string, unknown> = { ...base, isExpanded: true, agents: [{ id: 'a1', label: 'Survey', type: 'general-purpose', ...agent }] }
+  mockState(on, () => state, () => now)
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.findAll({ type: 'Text', text: /^● working · 2m14$/ })).length).toBe(2) // the status line and the Process card
+  await ui.unmount()
+  state = { ...base, agents: [{ id: 'a1', label: 'Survey', type: 'general-purpose', ...ended }] }
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^✓ done$/ }))?.text).toBe('✓ done')
+  await ui.unmount()
+  now = LIVE + DONE_MS
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^✓ done$|working/ })).toBe(undefined)
+  await ui.unmount()
 })

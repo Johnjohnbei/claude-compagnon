@@ -85,6 +85,8 @@ declare module 'claude-code' {
       repos: Shaped<RepoState[]>
       usedRepos: Shaped<string[]>
       isProjectsOpen: Shaped<boolean>
+      /** The pane unfolded by the `e` key; compact otherwise. */
+      isExpanded: Shaped<boolean>
       tick: Shaped<number>
       keepWarm: Shaped<KeepWarm | null>
       collisions: Shaped<Collision[]>
@@ -92,6 +94,8 @@ declare module 'claude-code' {
       tasks: Shaped<TaskRow[]>
       goal: Shaped<Goal | null>
       isWorking: Shaped<boolean>
+      /** When the main turn in flight began, 0 when none: the activity indicator. */
+      turnStartedAt: Shaped<number>
       journal: Shaped<LogEntry[]>
       costs: Shaped<TurnCost[]>
       costMark: Shaped<number>

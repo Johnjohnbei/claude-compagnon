@@ -1,46 +1,46 @@
-// The chain at the top of the pane: advisor, main session, decision layer, scouts, journal and status line, each block
-// in its role's colour (README, the blocks table).
+// The chain at the top of the pane: advisor, main session, decision layer, scouts, journal and status line (README).
+// Folded by default to the Model row and the status line, the same figures; `e` unfolds it.
 import type { RenderChildren } from 'claude-code'
 
-import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, ErrorEntry, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, TurnCost, Usage } from '../types'
-import { COLOR, Card, gauge, k, plural, usd, type El } from './card-frame'
+import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, TurnCost, Usage } from '../types'
+import { ACCENT, Card, TONE, gauge, k, plural, usd, type CardMode, type El, type Tone } from './card-frame'
 import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
 import { SOURCE_NAME } from './request-routing'
-import { activeAgents, ageLabel, costSummary, errorSummary, isFinished } from './logic'
+import { activeAgents, ageLabel, costSummary, isFinished, type Activity } from './logic'
+import { ActivityText } from './cards'
 
-/** One colour per role in the chain, as in the reference video: lead, advisor, decisions, agents (ANSI names: a theme cannot hide them). */
-const ROLE = { lead: 'yellow', advisor: 'magenta', decision: 'green', agents: 'blue' } as const
 const hhmm = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 const DAY = 86_400_000
 const PART_NAME: Record<string, string> = { 'System prompt': 'prompt', 'System tools': 'tools', 'MCP server instructions': 'MCP', 'Custom agents': 'agents', Skills: 'skills', Messages: 'messages', 'Memory files': 'memory' }
 const KIND_NAME: Record<LogKind, string> = { route: 'route', advisor: 'advisor', spawn: 'agent', release: 'model' }
 
-export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[] = [], role?: string) {
+export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[], mode: CardMode) {
   const { Text } = E
   const current = pin ? pin.tier : tierOf(usage?.model ?? '')
   // The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone.
   const shown = usage && tierOf(usage.model) === current ? modelLabel(usage.model) : TIER_NAME[current]
   const level: Level = verdict.isCold || kw?.stopped ? 'warn' : 'ok'
   const cacheLine = verdict.isCold ? (
-    <Text color="warning" wrap="truncate-end">cold cache · rereads {k(verdict.recache)}</Text>
+    <Text color={TONE.warn.color} wrap="truncate-end">▲ cold cache · rereads {k(verdict.recache)}</Text>
   ) : warmLeft !== null && warmLeft > 0 ? (
     <Text wrap="truncate-end">
       <Text dimColor>cache </Text>
-      <Text color="success">{gauge((warmLeft / ttl) * 100)}</Text>
+      <Text>{gauge((warmLeft / ttl) * 100)}</Text>
       <Text>  {ageLabel(warmLeft)}</Text>
-      <Text dimColor> · {k(verdict.recache)}{kw && !kw.stopped ? ' · kept warm' : ''}</Text>
+      <Text dimColor> · {k(verdict.recache)}</Text>
+      {kw && !kw.stopped ? <Text color={ACCENT}> · ● kept warm</Text> : null}
     </Text>
   ) : (
     <Text dimColor wrap="truncate-end">cache {cache ? 'warm' : 'estimated'} · {k(verdict.recache)}</Text>
   )
   const detail = kw?.stopped
-    ? <Text color="warning" wrap="truncate-end">↳ keep-warm stopped: {kw.stopped}</Text>
+    ? <Text color={TONE.warn.color} wrap="truncate-end">▲ keep-warm stopped: {kw.stopped}</Text>
     : !isAuto
       ? <Text dimColor>↳ automatic choice off</Text>
       : d && d.action !== 'keep'
         ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'switched to' : 'handed to'} {TIER_NAME[d.tier]}</Text>
         : null
-  return Card(E, width, 'Model', shown, level, [cacheLine, detail, ...extra], role)
+  return Card(E, width, 'Model', shown, level, [cacheLine, detail, ...extra], { ...mode, note: verdict.isCold ? 'cold cache' : kw?.stopped ? 'keep-warm stopped' : null })
 }
 
 /** The last things the mod decided or saw, newest last. */
@@ -62,16 +62,16 @@ const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'keeps the mo
 const SCOUTS: Array<[string, string, string]> = [['search', 'maps the repository', 'map'], ['grep', 'call sites', 'calls'], ['audit', 'diff review, worktree', 'review']]
 
 /** One scout's state: running (and for how long), finished (and how long it ran), failed, or idle. The API gives no progress: no percentage. */
-function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; level: Level; isRunning: boolean; isIdle: boolean } {
+function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; tone: Tone; isIdle: boolean } {
   const last = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)[0]
-  if (!last) return { mark: '·', time: 'idle', level: 'ok', isRunning: false, isIdle: true }
-  if (!isFinished(last.status)) return { mark: '●', time: clock(now - last.firstSeen), level: 'ok', isRunning: true, isIdle: false }
+  if (!last) return { mark: '·', time: 'idle', tone: 'ok', isIdle: true }
+  if (!isFinished(last.status)) return { mark: '●', time: clock(now - last.firstSeen), tone: 'active', isIdle: false }
   const time = clock((last.endedAt ?? now) - last.firstSeen)
-  return last.status === 'completed' ? { mark: '✓', time, level: 'ok', isRunning: false, isIdle: false } : { mark: '✕', time, level: 'warn', isRunning: false, isIdle: false }
+  return last.status === 'completed' ? { mark: '✓', time, tone: 'ok', isIdle: false } : { mark: '✕', time, tone: 'error', isIdle: false }
 }
 
 /** The advisor: how often it was consulted and what that costs. Its advice is encrypted by the API: the call is visible, never its text. */
-export function AdvisorCard(E: El, width: number, adv: AdvisorStat, turns: TurnCost[], now: number) {
+export function AdvisorCard(E: El, width: number, adv: AdvisorStat, turns: TurnCost[], now: number, mode: CardMode) {
   const { Text } = E
   const s = costSummary(turns)
   const isHeavy = s.advisorTurns > 0 && s.advisorShare >= 0.5
@@ -81,13 +81,13 @@ export function AdvisorCard(E: El, width: number, adv: AdvisorStat, turns: TurnC
       <Text wrap="truncate-end">last <Text dimColor>{ageLabel(now - adv.lastAt)} ago</Text></Text>,
       <Text dimColor wrap="truncate-end">encrypted advice</Text>,
       s.advisorTurns > 0
-        ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">~{Math.round(s.advisorShare * 100)}% of the cost (advisor)</Text>
+        ? <Text color={isHeavy ? TONE.warn.color : undefined} dimColor={!isHeavy} wrap="truncate-end">{isHeavy ? '▲ ' : ''}~{Math.round(s.advisorShare * 100)}% of the cost (advisor)</Text>
         : null,
-    ], ROLE.advisor)
+    ], mode)
 }
 
 /** The decision layer: which tier the last request got, from which layer, and what was done about it. */
-export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto: boolean) {
+export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto: boolean, mode: CardMode) {
   const { Text } = E
   const last = routes[routes.length - 1]
   const count = (src: RouteRecord['source']) => routes.filter(r => r.source === src).length
@@ -98,33 +98,22 @@ export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto
       <Text wrap="truncate-end"><Text dimColor>action </Text>{ACTION_TEXT[last.action]}</Text>,
       <Text dimColor wrap="truncate-end">keywords {count('keywords')} · classifier {count('classifier')} · default {count('default')}</Text>,
       !isAuto ? <Text dimColor>↳ automatic choice off</Text> : null,
-    ], ROLE.decision)
+    ], mode)
 }
 
-/** A scout card's narrowest width: its longest title ("search") inside `╭─ … ─╮` with one dash of fill. */
-const SCOUT_MIN = 13
-
-/** The scouts (search, grep, audit), three small cards side by side, one under the other when the pane cannot hold three. Other agents are counted. */
-export function SwarmCards(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean) {
-  const { Box, Text } = E
+/** The scouts (search, grep, audit) in one card, a line each: three small cards became one. Other agents are counted. */
+export function ScoutsCard(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean, mode: CardMode) {
+  const { Text } = E
   const others = activeAgents(agents).filter(a => !SCOUTS.some(([name]) => name === a.type)).length
-  const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'other agent', 'other agents')} running</Text> : null
-  const each = Math.floor((width - (SCOUTS.length - 1)) / SCOUTS.length)
-  const isRow = each >= SCOUT_MIN
-  return (
-    <Box flexDirection="column">
-      <Box flexDirection={isRow ? 'row' : 'column'} gap={isRow ? 1 : 0}>
-        {SCOUTS.map(([name, role, short]) => {
-          const s = scoutState(agents, name, now)
-          return Card(E, isRow ? each : width, name, '', 'ok', [
-            <Text color={s.level === 'ok' ? undefined : COLOR[s.level]} dimColor={s.isIdle} wrap="truncate-end">{s.mark} {s.time}</Text>,
-            <Text dimColor wrap="truncate-end">{isWide ? role : short}</Text>,
-          ], ROLE.agents)
-        })}
-      </Box>
-      {note}
-    </Box>
-  )
+  const states = SCOUTS.map(([name, role, short]) => ({ name, what: isWide ? role : short, ...scoutState(agents, name, now) }))
+  const running = states.filter(s => s.tone === 'active').length
+  const tone: Tone = states.some(s => s.tone === 'error') ? 'error' : running > 0 ? 'active' : 'ok'
+  return Card(E, width, 'Scouts', running > 0 ? `${running} running` : 'idle', tone, [
+    ...states.map(s => (
+      <Text color={TONE[s.tone].color} dimColor={s.isIdle} wrap="truncate-end">{s.mark} {s.name.padEnd(6)} {s.time}<Text dimColor> · {s.what}</Text></Text>
+    )),
+    others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'other agent', 'other agents')} running</Text> : null,
+  ], mode)
 }
 
 /** A link between two blocks of the chain, one line: ▽ advice, ▼ work handed down, ▲ results coming back. */
@@ -134,15 +123,18 @@ function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: str
   return <Text dimColor wrap="truncate-end">{' '.repeat(Math.floor(width / 2))}{arrow} {label}</Text>
 }
 
-/** The bottom line: what is running, the advisor's calls, the decisions, the cost, and the mod's own errors when there are any. */
-export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[], errors: ErrorEntry[] = []) {
+/**
+ * The status line, the chain folded to one line: the activity while there is some, what is running, the advisor's calls,
+ * the decisions, the cost. The mod's own errors moved to the Errors row.
+ */
+export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[], activity: Activity, now: number) {
   const { Text } = E
   const live = activeAgents(agents).length
-  const failed = errorSummary(errors)
+  const busy = ActivityText(E, activity, now)
   return (
     <Text wrap="truncate-end">
-      <Text dimColor>agents [{live} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
-      {failed ? <Text color="warning"> · {failed}</Text> : null}
+      {busy}
+      <Text dimColor>{busy ? ' · ' : ''}agents [{live} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
     </Text>
   )
 }
@@ -152,7 +144,7 @@ export type SchemaInput = {
   usage: Usage | null; decision: Decision | null; pin: Pin | null; cache: CacheInfo | null; verdict: CacheVerdict
   keepWarm: KeepWarm | null; warmLeft: number | null; ttl: number; isAuto: boolean
   advisor: AdvisorStat; turns: TurnCost[]; seen: SeenModels; parts: CtxPart[]
-  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; errors: ErrorEntry[]; now: number
+  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; activity: Activity; isExpanded: boolean; now: number
 }
 
 /** The chain at a glance: advisor beside the main session, the decision layer under it, the scouts, the journal, the status line. */
@@ -169,15 +161,25 @@ export function Schema(E: El, s: SchemaInput) {
   const versions = TIERS_STRONGEST_FIRST.filter(t => s.seen[t]).map(t => modelLabel(s.seen[t] as string))
   const release = [...s.journal].reverse().find(l => l.kind === 'release' && s.now - l.at < DAY)
   const extra = [
-    release ? <Text color="warning" wrap="truncate-end">↳ new version: {release.text}</Text> : null,
+    release ? <Text wrap="truncate-end">↳ new version: {release.text}</Text> : null,
     effort ? <Text wrap="truncate-end"><Text dimColor>effort </Text>{effort}</Text> : null,
     versions.length > 0 ? <Text dimColor wrap="truncate-end">seen: {versions.join(' · ')}</Text> : null,
     fixed.length > 0 ? <Text wrap="truncate-end"><Text dimColor>load </Text>{k(fixed.reduce((n, p) => n + p.tokens, 0))}<Text dimColor>{messages ? ` · conversation ${k(messages.tokens)}` : ''}</Text></Text> : null,
     fixed.length > 0 ? <Text dimColor wrap="truncate-end">{[...fixed].slice(0, 3).map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text> : null,
   ]
-  const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra, ROLE.lead)
-  const advisor = AdvisorCard(E, isWide ? leftW : total, s.advisor, s.turns, s.now)
-  const decisions = DecisionCard(E, mainW, s.routes, s.isAuto)
+  const footer = StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns, s.activity, s.now)
+  // Folded: the Model row and the status line, the same figures the unfolded chain shows.
+  if (!s.isExpanded)
+    return (
+      <Box flexDirection="column">
+        {ModelCard(E, Math.min(64, s.width), s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, [], { isCompact: true })}
+        {footer}
+      </Box>
+    )
+  const open: CardMode = {}
+  const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra, open)
+  const advisor = AdvisorCard(E, isWide ? leftW : total, s.advisor, s.turns, s.now, open)
+  const decisions = DecisionCard(E, mainW, s.routes, s.isAuto, open)
   return (
     <Box flexDirection="column">
       {isWide ? (
@@ -196,10 +198,10 @@ export function Schema(E: El, s: SchemaInput) {
         </Box>
       )}
       {isWide ? <Text dimColor>  ↓ subagents</Text> : null}
-      {SwarmCards(E, total, s.agents, s.now, isWide)}
+      {ScoutsCard(E, total, s.agents, s.now, isWide, open)}
       {isWide ? null : Link(E, total, 'back', 'results')}
       {JournalCard(E, total, s.journal)}
-      {StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns, s.errors)}
+      {footer}
     </Box>
   )
 }

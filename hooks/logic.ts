@@ -115,6 +115,25 @@ export const isFinished = (status: string): boolean => FINISHED_AGENT.has(status
 /** The agents the band and the status line count as active: one rule for both. */
 export const activeAgents = <A extends { status: string }>(list: A[]): A[] => list.filter(a => !isFinished(a.status))
 
+/** How long `✓ done` stays once the last turn or agent ended: drawn at the end, gone by the next 15 s refresh or the one after. */
+export const DONE_MS = 10_000
+export type Activity = { state: 'working'; since: number } | { state: 'done' } | null
+/**
+ * Whether Claude is busy: a main turn in flight (`turnStartedAt`, 0 when none) or an agent still active; `since` is the
+ * earliest of their starts. Nothing in flight: `done` for DONE_MS after the last end, then nothing.
+ */
+export function activityOf(turnStartedAt: number, lastTurnEnd: number, agents: Array<{ status: string; firstSeen: number; endedAt?: number }>, now: number): Activity {
+  const starts = [...(turnStartedAt > 0 ? [turnStartedAt] : []), ...activeAgents(agents).map(a => a.firstSeen)]
+  if (starts.length > 0) return { state: 'working', since: Math.min(...starts) }
+  const ended = Math.max(lastTurnEnd, ...agents.map(a => a.endedAt ?? 0))
+  return ended > 0 && now - ended < DONE_MS ? { state: 'done' } : null
+}
+/** `2m14`: an elapsed time to the second, minutes not rolled into hours. */
+export const elapsedLabel = (ms: number): string => {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}`
+}
+
 /** Usage thresholds used by ccusage and most status lines: green under 70 %, red from 90 %. */
 export const levelOf = (pct: number): Level => (pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok')
 
