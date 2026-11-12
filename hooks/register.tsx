@@ -66,7 +66,11 @@ export const register: Register = (on, options) => {
     await initGuards($)
     isNoColor = Boolean(await $.env.get('NO_COLOR').catch(() => undefined))
     await $.command.register({ name: 'compagnon', description: 'Compagnon pane (args: keepwarm [hours|off], handoff, decisions, load, errors)', argumentHint: '[keepwarm [h|off] | handoff | decisions | load | errors]' })
-    void $.ui.open({ id: PANE, title: 'Compagnon' })
+    void quietly($, async () => {
+      // Opened unasked, the engine seats a pane from 144 columns only (110 once opened by hand) and draws nothing below: say so, never stay invisible.
+      const opened = await $.ui.open({ id: PANE, title: 'Compagnon' })
+      if (!opened.isPlaced && !opened.reason.startsWith('no-surface')) $.ui.toast('Compagnon pane waiting for a wider terminal (144 columns). Type /compagnon to open it now.')
+    })
     void quietly($, () => refreshRepos($))
     void quietly($, () => refreshUsage($))
     void quietly($, () => restorePaneMode($))

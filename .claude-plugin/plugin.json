@@ -1,6 +1,6 @@
 {
   "name": "compagnon",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Companion pane read by priority, with an artichoke that shows the session state: automatic model switching without losing the cache, context, 7-day plan usage, running and stuck agents, errors, repository state.",
   "author": {
     "name": "Johnjohnbei"
@@ -23,7 +23,7 @@
     "showCompanion": {
       "type": "boolean",
       "title": "Companion drawing",
-      "description": "A small artichoke beside the pane's head that shows the session's state (working, waiting for you, done, failed, resting). Uncheck to keep the text only. It is hidden anyway when the pane is narrower than 40 columns.",
+      "description": "A small artichoke beside the pane's head that shows the session's state (working, waiting for you, done, failed, resting). Uncheck to keep the text only. In a pane under 40 columns it sits above the text; only a pane under 16 columns leaves it out.",
       "default": true
     },
     "classify": {

@@ -31,7 +31,7 @@ The companion has five moods. The mood is read from the real state, by priority:
 | Done | A turn ended in an answer, or an agent ended, less than 20 s ago. An interrupted turn reads `Interrupted` for 20 s, then rests | green |
 | Resting | None of the above | grey |
 
-It needs a terminal with 24-bit colour. It is hidden when the pane is narrower than 40 columns (the head's text stays), and the `showCompanion` option turns it off.
+It needs a terminal with 24-bit colour. It sits beside the head's text from 40 columns and above it in a narrower pane, such as one docked beside the chat, so it shows from the first draw. Only a pane under 16 columns leaves it out (the head's text stays), and the `showCompanion` option turns it off.
 
 ### Sections
 
@@ -242,7 +242,7 @@ Options declared in `.claude-plugin/plugin.json` (`userConfig`):
 | --- | --- | --- |
 | `projects` | empty | Absolute paths of the git repositories the `Projects` card follows, separated by `;`. Empty: the session's project only. |
 | `showBand` | `true` | The one-line band above the prompt. Off: the pane only. |
-| `showCompanion` | `true` | The artichoke beside the pane's head. Off: the head's text only. It is hidden under 40 columns whatever the option. |
+| `showCompanion` | `true` | The artichoke beside the pane's head. Off: the head's text only. Above the head's text under 40 columns, left out under 16 whatever the option. |
 | `classify` | `true` | The Haiku classifier for requests the keywords do not recognise. Off: keywords only, the rest stays on Opus. |
 | `coldGuardTokens` | `150000` | Context size above which a send on a cold cache asks first. Accepts `150000` or `150k`. `0` turns the guard off. |
 
@@ -276,6 +276,7 @@ That is why the guards exist. Routing switches the model only when the cache is 
 ## Limits
 
 - The pane redraws about twice a second while something is in flight or a permission waits, and not at all at rest.
+- Claude Code seats a pane it opens on its own (at session start) only from 144 terminal columns, 110 once you have opened it by hand, and draws nothing below. The mod then shows a toast; `/compagnon` opens the pane at any width. A `--plugin-dir` copy counts as a new plugin, so the 144 floor applies until you open it once.
 - Narrow panes (under 44 columns) keep each section row on one line: the name column and the key hints give way, the `view` and `stop` buttons stay.
 - The companion is drawn in 24-bit colour and the engine exposes no colour-depth signal (a search of `.claude-plugin/types/claude-code/index.d.ts` for `colorDepth`, `colorLevel` and `supportsColor` finds none). The mod therefore reads the one signal there is, `NO_COLOR` through `$.env.get`: set and not empty, the drawing is left out at session start and the head's text stays ([no-color.org](https://no-color.org)). It does not gate on `COLORTERM`, which a truecolor terminal such as Windows Terminal may leave unset. On a terminal without colour that sets nothing, the faces stay distinguishable by shape (a raised leaf waits, glancing eyes work, a smile is done, a wavy mouth fails, flat eyes rest), and `showCompanion` turns the drawing off.
 - Keyword routing is approximate. The classifier covers what keywords miss; without it (option off, 3 s timeout, failure), the request stays on Opus.

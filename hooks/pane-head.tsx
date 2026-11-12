@@ -67,7 +67,9 @@ function CacheLine(E: El, hd: HeadInput) {
 /** The head: the companion (when shown and there is room) and its text lines. */
 export function Head(E: El, hd: HeadInput) {
   const { Box, Text } = E
+  // Beside the text from SPRITE_MIN_COLUMNS, above it in a narrower pane (a docked pane is often under 40): shown from the first draw.
   const isSprite = hd.isSpriteShown && hd.columns >= SPRITE_MIN_COLUMNS
+  const isStacked = hd.isSpriteShown && !isSprite && hd.columns >= SPRITE_COLUMNS
   const { current, shown } = shownModel(hd.usage, hd.pin)
   const last = hd.routes[hd.routes.length - 1]
   const g = hd.goal || hd.taskList.length > 0 ? goalProgress(hd.taskList, hd.goal?.startedAt ?? hd.now, hd.now) : null
@@ -91,6 +93,12 @@ export function Head(E: El, hd: HeadInput) {
     CacheLine(E, hd),
   ]
   const textWidth = hd.width - (isSprite ? SPRITE_COLUMNS + GAP : 0)
+  if (isStacked) return (
+    <Box flexDirection="column" width={hd.width}>
+      {Sprite(E, hd.mood, hd.frame)}
+      <Box flexDirection="column" width={hd.width} marginTop={1}>{lines.filter(Boolean)}</Box>
+    </Box>
+  )
   return (
     <Box width={hd.width}>
       {isSprite ? <Box width={SPRITE_COLUMNS + GAP} flexShrink={0}>{Sprite(E, hd.mood, hd.frame)}</Box> : null}

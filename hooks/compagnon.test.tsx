@@ -906,7 +906,7 @@ test('the activity reads working while a turn or an agent runs, done for a few s
 })
 
 /** Mocks a session start over a store that may be pre-seeded, or broken for the `paneExpanded` key only (the rest of the pane needs the store); `e` presses are written to the same store. */
-async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], store: Map<string, unknown>, isStoreBroken = false, env: Record<string, string> = {}) {
+async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], store: Map<string, unknown>, isStoreBroken = false, env: Record<string, string> = {}, opened: { isPlaced: true } | { isPlaced: false; reason: string } = { isPlaced: true }) {
   on('store.get', (_, e) => {
     const { key } = e as unknown as { key: string }
     if (isStoreBroken && key === 'paneExpanded') throw new Error('store down')
@@ -926,7 +926,7 @@ async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>
   on('session.usage', () => ({ value: { context: { percent: 10, tokens: 20_000, window: 200_000 }, rateLimits: [], cost: { usd: 0 }, startedAt: LIVE } }))
   on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('command.register', () => ({ value: { command: 'compagnon' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', () => ({ value: opened }))
   on('fs.read', () => {
     throw new Error('no relay file')
   })
@@ -1206,7 +1206,7 @@ test('a kept-warm cache reads warm in the head, with the keep-warm saying so', a
   await ui.unmount()
 })
 
-test('the companion draws beside the head from 40 columns, and goes below, the text staying', async ($, on) => {
+test('the companion draws beside the head from 40 columns, above it in a narrower pane, and only a pane under 16 columns leaves it out', async ($, on) => {
   mockState(on, { ...STATE, collisions: [] })
   const read = async (columns: number) => {
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
@@ -1218,8 +1218,12 @@ test('the companion draws beside the head from 40 columns, and goes below, the t
   expect((await read(64)).halves).toBeGreaterThan(9)
   expect((await read(40)).halves).toBeGreaterThan(9)
   const narrow = await read(39)
-  expect(narrow.halves).toBe(0)
+  expect(narrow.halves).toBeGreaterThan(8) // stacked above the text: a docked pane shows it from the first draw
   expect(narrow.title).toBeDefined()
+  expect((await read(30)).halves).toBeGreaterThan(8)
+  const tiny = await read(15)
+  expect(tiny.halves).toBe(0)
+  expect(tiny.title).toBeDefined()
 })
 
 test('showCompanion off draws no companion, and the head text stays', { options: { showCompanion: false } }, async ($, on) => {
@@ -1588,4 +1592,26 @@ test('only a teammate whose id is its address (a terminal pane) is marked as a p
   await $.turn.complete(complete('answer'))
   const rows = atoms.get('agents') as Array<{ id: string; isPaneTeammate: boolean }>
   expect(rows.map(r => [r.id, r.isPaneTeammate])).toEqual([['bob@team', true], ['ag-7', false], ['ag-8', false]])
+})
+
+test('a pane the engine holds back on a narrow terminal is announced, never left invisible', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  await startSession($, on, new Map(), false, {}, { isPlaced: false, reason: 'opened unasked: placed from 144 columns, 120 now' })
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  expect(toasts.some(t => t.includes('/compagnon'))).toBe(true)
+})
+
+test('no toast when the pane is drawn, nor when no surface is attached (claude -p)', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  await startSession($, on, new Map(), false, {}, { isPlaced: false, reason: 'no-surface: no surface is attached' })
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  expect(toasts.filter(t => t.includes('/compagnon'))).toEqual([])
 })
