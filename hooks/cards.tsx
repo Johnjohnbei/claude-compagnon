@@ -34,22 +34,27 @@ export const gauge = (pct: number, width = GAUGE): string => {
 /**
  * One card, `width` columns wide: `╭─ Title ──── value ─╮`, its lines between `│ … │`, then `╰───╯`.
  * The chain's blocks (role set) are drawn in their role's colour; the others stay quiet until a state needs a look.
+ * Never wider than `width`: a floor wider than the pane spilled past its edge on a narrow terminal.
  */
-function Card(E: El, width: number, title: string, value: string, level: Level, lines: RenderChildren[], role?: string, minWidth = 24) {
+function Card(E: El, width: number, title: string, value: string, level: Level, lines: RenderChildren[], role?: string) {
   const { Box, Text } = E
-  const w = Math.max(minWidth, width)
+  const w = Math.max(8, width)
   // The border carries the role's colour (the chain's blocks) or stays quiet and takes the state's colour (the other cards).
-  // On a role card an alert keeps the role's border and adds a marker before the value, in the state's colour.
+  // A state that needs a look adds ▲ before the value, in the state's colour: it reads without the colour, and on a role card
+  // whose border keeps the role's colour.
   const border = role ?? (level === 'ok' ? undefined : COLOR[level])
-  const isAlert = level !== 'ok' && role !== undefined
-  const shown = `${isAlert ? '▲ ' : ''}${value}`
-  const valueColor = isAlert ? COLOR[level] : border
-  const fill = Math.max(1, w - title.length - (shown === '' ? 6 : shown.length + 8))
+  const isMarked = level !== 'ok'
+  const shown = `${isMarked ? '▲ ' : ''}${value}`
+  const valueColor = isMarked ? COLOR[level] : border
+  // Too narrow for both: the title gives way, never the value (a cut line would lose the figure and the corner).
+  const room = w - (shown === '' ? 7 : shown.length + 9)
+  const label = title.length <= room ? title : `${title.slice(0, Math.max(0, room - 1))}…`
+  const fill = Math.max(1, w - label.length - (shown === '' ? 6 : shown.length + 8))
   return (
     <Box flexDirection="column" width={w}>
       <Text wrap="truncate-end">
         <Text color={border} dimColor={!border}>╭─ </Text>
-        <Text bold>{title}</Text>
+        <Text bold>{label}</Text>
         <Text color={border} dimColor={!border}> {'─'.repeat(fill)}{shown === '' ? '' : ' '}</Text>
         {shown === '' ? null : <Text color={valueColor} bold>{shown}</Text>}
         <Text color={border} dimColor={!border}>{shown === '' ? '─╮' : ' ─╮'}</Text>
@@ -111,7 +116,8 @@ export function JournalCard(E: El, width: number, list: LogEntry[]) {
 export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, contextPct: number | null, liveAgents: number) {
   const { Text } = E
   const level = contextPct === null ? 'ok' : levelOf(contextPct)
-  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `ctx ${Math.round(contextPct)} %`, liveAgents > 0 ? `agents ${liveAgents}` : null]
+  // ▲ marks the context that needs a look, as on the cards: the colour alone does not carry the state.
+  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${level === 'ok' ? '' : '▲ '}ctx ${Math.round(contextPct)} %`, liveAgents > 0 ? `agents ${liveAgents}` : null]
   return <Text color={level === 'ok' ? undefined : COLOR[level]} dimColor={level === 'ok'} wrap="truncate-end">{parts.filter(Boolean).join(' · ')}</Text>
 }
 
@@ -162,21 +168,25 @@ export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto
     ], ROLE.decision)
 }
 
-/** The scouts (search, grep, audit), three small cards side by side whatever the width. Other agents are counted. */
+/** A scout card's narrowest width: its longest title (« search ») inside `╭─ … ─╮` with one dash of fill. */
+const SCOUT_MIN = 13
+
+/** The scouts (search, grep, audit), three small cards side by side, one under the other when the pane cannot hold three. Other agents are counted. */
 export function SwarmCards(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean) {
   const { Box, Text } = E
   const others = agents.filter(a => !SCOUTS.some(([name]) => name === a.type) && !FINISHED.includes(a.status)).length
   const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'autre agent', 'autres agents')} en cours</Text> : null
   const each = Math.floor((width - (SCOUTS.length - 1)) / SCOUTS.length)
+  const isRow = each >= SCOUT_MIN
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row" gap={1}>
+      <Box flexDirection={isRow ? 'row' : 'column'} gap={isRow ? 1 : 0}>
         {SCOUTS.map(([name, role, short]) => {
           const s = scoutState(agents, name, now)
-          return Card(E, each, name, '', 'ok', [
+          return Card(E, isRow ? each : width, name, '', 'ok', [
             <Text color={s.level === 'ok' ? undefined : COLOR[s.level]} dimColor={s.isIdle} wrap="truncate-end">{s.mark} {s.time}</Text>,
             <Text dimColor wrap="truncate-end">{isWide ? role : short}</Text>,
-          ], ROLE.agents, 12)
+          ], ROLE.agents)
         })}
       </Box>
       {note}
@@ -349,7 +359,8 @@ export function ProjectsCard(E: El, width: number, all: RepoState[], used: strin
   const repos = all.filter(r => used.includes(r.dir))
   const idle = all.filter(r => !used.includes(r.dir))
   const level: Level = clash.length > 0 ? 'alert' : repos.some(r => r.behind > 0 || r.ahead > 0) ? 'warn' : 'ok'
-  const value = clash.length ? `▲ ${clash.length}` : `${repos.length}${idle.length ? ` +${idle.length}` : ''}`
+  // The card adds ▲ to any value that needs a look; a collision shows its count in place of the repositories'.
+  const value = clash.length ? `${clash.length}` : `${repos.length}${idle.length ? ` +${idle.length}` : ''}`
   const row = (r: RepoState) => (
     <Text wrap="truncate-end">
       <Text bold>{r.name}</Text> <Text color="suggestion">{r.branch}</Text>

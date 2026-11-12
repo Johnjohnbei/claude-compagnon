@@ -5,7 +5,7 @@
 Créé par [Coeurdar](https://coeurdar.com), projet de formation et de conseil en IA. Code open source sous licence MIT.
 
 Mod Claude Code : un panneau latéral qui s'ouvre avec chaque session et surveille le travail en cours.
-Une card bordée par sujet : le titre et la valeur clé dans la bordure du haut, une ou deux lignes dedans (jauge courte, chiffre, détail). La bordure reste discrète quand tout va bien et passe en orange ou en rouge quand une card demande un coup d'œil. Les touches tiennent sur une ligne de légende sous les cards.
+Une card bordée par sujet : le titre et la valeur clé dans la bordure du haut, une ou deux lignes dedans (jauge courte, chiffre, détail). La bordure reste discrète quand tout va bien et passe en orange ou en rouge quand une card demande un coup d'œil, et ▲ précède alors sa valeur, pour que l'état se lise aussi sans la couleur (le bandeau fait de même devant le contexte). Sur un panneau trop étroit pour le titre et la valeur, le titre est raccourci, jamais la valeur. Les touches tiennent sur une ligne de légende sous les cards.
 
 | Card | Ce qu'elle montre |
 | --- | --- |
@@ -17,12 +17,12 @@ Une card bordée par sujet : le titre et la valeur clé dans la bordure du haut,
 | Parallélisme | lectures faites l'une après l'autre au dernier tour, à grouper ou déléguer |
 | Projets | branche, fichiers modifiés, commits à pousser ou en retard des dépôts touchés pendant la session, fichiers modifiés aussi par une autre session ouverte ; les autres dépôts suivis restent repliés |
 
-Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de suivi (contexte, forfait, objectif, process, parallélisme, projets). Un panneau à côté de la conversation ne dépasse pas 45 % de la largeur du terminal (Ctrl+X puis flèche gauche lui donne de la place). En dessous de 84 colonnes, les blocs se suivent en colonne, reliés par des flèches (▽ conseil, ▼ décide, ▼ délègue, ▲ résultats), et les trois agents restent côte à côte ; à partir de 84 colonnes, l'advisor passe à côté du fil principal. Chaque rôle a sa couleur : jaune le fil principal, magenta l'advisor, vert les décisions, bleu les agents. Une alerte ajoute ▲ devant la valeur du bloc, sans changer sa couleur.
+Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de suivi (contexte, forfait, objectif, process, parallélisme, projets). Un panneau à côté de la conversation ne dépasse pas 45 % de la largeur du terminal (Ctrl+X puis flèche gauche lui donne de la place). En dessous de 84 colonnes, les blocs se suivent en colonne, reliés par des flèches (▽ conseil, ▼ décide, ▼ délègue, ▲ résultats), et les trois agents restent côte à côte tant que le panneau a au moins 41 colonnes, l'un sous l'autre en dessous ; à partir de 84 colonnes, l'advisor passe à côté du fil principal. Chaque rôle a sa couleur : jaune le fil principal, magenta l'advisor, vert les décisions, bleu les agents. Une alerte ajoute ▲ devant la valeur du bloc, sans changer sa couleur.
 
 | Bloc | Ce qu'il montre | D'où ça vient |
 | --- | --- | --- |
 | Advisor | nombre d'appels, âge du dernier, part du coût des tours où il a été consulté (le « ~ » marque une estimation : la variation du coût de session inclut aussi les sous-agents) | `session.append`, coût de session |
-| Modèle | version lue dans l'identifiant renvoyé, cache, effort, versions vues par palier (alerte de 24 h quand un alias change), charge chargée avant la première parole (outils, mémoire, skills) et conversation | `turn.step`, `usage({ breakdown: 'summary' })` |
+| Modèle | version lue dans l'identifiant renvoyé, cache, effort, versions vues par palier (alerte de 24 h quand un alias change), charge chargée avant la première parole (outils, mémoire, skills) et conversation | `turn.step`, `usage({ breakdown: 'full' })` |
 | Décisions | palier de la dernière demande, couche qui a décidé (mots-clés, classifieur, défaut), action (garder, basculer, déléguer), décomptes par couche | journal des décisions |
 | Agents | `search`, `grep`, `audit` en trois petites cards : ● en cours (durée), ✓ terminé (durée), ✕ échec, · inactif ; les autres agents sont comptés | `$.agent.list()` |
 | Journal, ligne d'état | les dernières décisions ; agents actifs, appels advisor, décisions, coût | état du mod |
@@ -30,7 +30,7 @@ Le panneau s'ouvre sur un schéma de la chaîne de modèles, puis les cards de s
 
 Le conseil de l'advisor est chiffré par l'API : seul le nombre d'appels est visible, jamais son texte ni les jetons qu'il lit. Il n'y a pas de pourcentage de progression pour les agents : l'API n'en donne pas, la durée écoulée la remplace.
 
-`/compagnon charge` imprime ce que la session charge avant la première parole, source par source : fichiers de mémoire avec leur chemin et leurs jetons, skills par plugin, agents, commandes et outils MCP par serveur. Elle termine par des pistes pour les sources lourdes (un fichier de mémoire d'au moins 8 k jetons, un plugin ou un serveur MCP d'au moins 1,5 k). C'est la mesure à lancer avant d'alléger quoi que ce soit. La card Charge et cette commande lisent le même détail (`breakdown: 'full'`, qui compte chaque fichier à part ; le mode `summary` sous-estimait la mémoire de 25 % environ).
+`/compagnon charge` imprime ce que la session charge avant la première parole, source par source : fichiers de mémoire avec leur chemin et leurs jetons, skills par plugin, agents, commandes et outils MCP par serveur. Elle termine par des pistes pour les sources lourdes (un fichier de mémoire d'au moins 8 k jetons, un plugin ou un serveur MCP d'au moins 1,5 k). C'est la mesure à lancer avant d'alléger quoi que ce soit. La ligne « charge » du bloc Modèle et cette commande lisent le même détail (`breakdown: 'full'`, qui compte chaque fichier à part ; le mode `summary` sous-estimait la mémoire de 25 % environ).
 
 `/compagnon` rouvre le panneau, `/compagnon keepwarm [heures|off]` règle le maintien au chaud, `/compagnon handoff` demande un handoff.
 Touches dans le panneau : `a` coupe ou réactive la bascule automatique, `k` garde le cache au chaud 2 h (ou l'arrête), `h` demande un handoff, `c` efface la session et repart du handoff prêt, `r` relit les dépôts, `p` déplie ou replie les dépôts non touchés.

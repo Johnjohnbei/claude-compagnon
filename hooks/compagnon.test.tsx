@@ -358,7 +358,8 @@ test('the band above the prompt is one line of figures', async ($, on) => {
     surface: 'terminal',
     props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
   } as never)
-  const line = /^Opus 5\.5 · advisor 2 · 0,29 \$ · ctx 74 % · agents 2$/
+  // 74 % is past the warning threshold: ▲ says it without the colour
+  const line = /^Opus 5\.5 · advisor 2 · 0,29 \$ · ▲ ctx 74 % · agents 2$/
   expect((await ui.find({ type: 'Text', text: line }))?.text).toMatch(line)
   await ui.unmount()
 })
@@ -455,6 +456,29 @@ test('wide pane: the advisor sits beside the main session, the three scouts side
   }
   expect((await ui.find({ type: 'Text', text: /↓ sous-agents/ }))?.text).toMatch(/↓ sous-agents/)
   await ui.unmount()
+})
+
+test('a narrow pane: no card spills past its width, the scouts stack, and a state reads without its colour', async ($, on) => {
+  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  on('state.get', (_, e) => {
+    const key = (e as unknown as { key: string }).key
+    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
+    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+  })
+  on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
+  on('clock.now', () => ({ value: LIVE }))
+  for (const columns of [36, 24]) {
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
+    // every border line of every card fits the pane (cards had a 24-column floor, the scouts 12 each side by side)
+    const borders = await ui.findAll({ type: 'Text', text: /^[╭╰]─.*[╮╯]$/ })
+    expect(borders.length).toBeGreaterThan(8)
+    expect(borders.map(b => b.text).filter(t => t.length > columns)).toEqual([])
+    // three scouts cannot sit side by side: each takes the pane's width
+    expect((await ui.find({ type: 'Text', text: /^╭─ search ─+╮$/ }))?.text.length).toBe(columns)
+    // the context card past 70 % shows ▲ before its value, not only an orange border
+    expect((await ui.find({ type: 'Text', text: /^╭─ Contexte ─+ ▲ 74 % ─╮$/ }))?.text).toMatch(/▲ 74 %/)
+    await ui.unmount()
+  }
 })
 
 test('the load report names the heavy sources: memory files by path, skills by plugin, agents, commands, MCP by server', async () => {
