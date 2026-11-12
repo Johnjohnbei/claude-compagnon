@@ -142,6 +142,7 @@ It stops at the chosen time, when a ping gets no answer, or when a ping rewrites
 Use it when the context is nearly full or the session drifted. Press `h` or run `/compagnon handoff`.
 Claude writes the session state to a Markdown file. When the file is on disk, a toast says `Handoff ready`, `FOR YOU` shows `● handoff ready` and the keys line shows `restart from handoff`.
 Press `c`: the session is cleared and the fresh one starts by reading the file.
+A compaction (automatic, or `/compact`) also writes a handoff from its own summary, unasked, so `c` is ready even if no warning came first; `h` stays the way to ask for a fuller one by hand.
 
 ### Collision guard
 

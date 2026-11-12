@@ -1615,3 +1615,53 @@ test('no toast when the pane is drawn, nor when no surface is attached (claude -
   for (let i = 0; i < 5; i++) await Promise.resolve()
   expect(toasts.filter(t => t.includes('/compagnon'))).toEqual([])
 })
+
+test('a compaction saves its summary as a handoff ready for c; too short, a subagent, a precompute or a skip saves nothing', async ($, on) => {
+  const { clock, atoms } = animationHarness(on)
+  const writes: Array<{ path: string; text: string }> = []
+  const toasts: string[] = []
+  let isDiskFull = false
+  let compacted: { skip: string } | { messages: unknown[] } = { skip: 'off' }
+  on('fs.write', (_, e) => {
+    if (isDiskFull) throw new Error('ENOSPC')
+    writes.push(e as unknown as { path: string; text: string })
+    return { value: undefined } as never
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  on('classic.PostCompact', () => ({}) as never)
+  on('session.compact', () => compacted as never)
+  on('session.root', () => ({ value: 'C:/r' }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('command.register', () => ({ value: { command: 'compagnon' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', () => ({ cwd: 'C:/r' }))
+  await $.session.start({ cwd: 'C:/r', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const summary = `This session refactors the handoff flow of the compagnon plugin. ${'Decisions, files and next steps are listed here. '.repeat(5)}`
+  await $.classic.PostCompact({ trigger: 'auto', compact_summary: 'Short summary.' } as never)
+  await $.classic.PostCompact({ trigger: 'auto', compact_summary: summary, agent_id: 'a1' } as never) // a subagent's own transcript
+  await $.session.compact({ trigger: 'precompute', messages: [] } as never)
+  compacted = { messages: [{ role: 'user', text: summary, toolUses: [] }] }
+  await $.session.compact({ trigger: 'precompute', messages: [] } as never) // computed ahead, installs nothing
+  expect(writes).toEqual([])
+  expect(atoms.get('handoff') ?? null).toBe(null)
+  // a handoff asked by hand is still being written: the compaction's replaces it, the held message is kept
+  atoms.set('handoff', { path: 'C:/old.md', state: 'writing', askedAt: LIVE, pending: 'my message', turnStarted: true })
+  await $.classic.PostCompact({ trigger: 'auto', compact_summary: summary } as never)
+  expect(writes.length).toBe(1)
+  expect(writes[0]?.path.replace(/\\/g, '/')).toMatch(/\/\.claude\/mods-data\/compagnon\/handoffs\/2026-11-05-15-20-session-\.md$/)
+  expect(writes[0]?.text.startsWith('# Handoff')).toBe(true)
+  expect(writes[0]?.text).toContain(summary.trim())
+  const ready = atoms.get('handoff') as { path: string }
+  expect(ready.path.endsWith('handoffs/2026-11-05-15-20-session-.md')).toBe(true) // the file just written (the kit resolves the relative home of this test)
+  expect({ ...ready, path: '' }).toEqual({ path: '', state: 'ready', askedAt: LIVE, pending: 'my message', turnStarted: false })
+  expect(toasts.some(t => /Press c/.test(t))).toBe(true)
+  // a write that fails says so and leaves the ready handoff alone; the compaction is never blocked
+  isDiskFull = true
+  await $.classic.PostCompact({ trigger: 'manual', compact_summary: summary } as never)
+  expect(toasts.some(t => /^Handoff not written/.test(t))).toBe(true)
+  expect(atoms.get('handoff')).toEqual(ready)
+})

@@ -4,7 +4,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { ErrorEntry, RouteRecord, SeenModels } from '../types'
-import { askHandoff, guardEdit, initGuards, nameSession, renewSession, setKeepWarm, writeLedger } from './guards'
+import { askHandoff, guardEdit, initGuards, nameSession, renewSession, saveCompactHandoff, setKeepWarm, writeLedger } from './guards'
 import { TIER_NAME } from './tiers'
 import { routeReport, spawnModel } from './request-routing'
 import { chargeReport } from './load-report'
@@ -132,6 +132,16 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(async ($, e, next) => {
     await recordError($, next.error, 'classic.SessionStart')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
+
+  // A compaction leaves a handoff behind, asked for or not: its summary is the exact text (a subagent's own is not the session's).
+  on('classic.PostCompact', async ($, e, next) => {
+    const done = await next(e)
+    if (!e.agent_id) await quietly($, () => saveCompactHandoff($, e.compact_summary ?? ''))
+    return done
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'classic.PostCompact')
     return next.called ? undefined : next(e)
   }) // own failure: pass the work on, never run it twice
 

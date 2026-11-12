@@ -162,10 +162,13 @@ export async function keepWarmTick($: $, lastActivity: number, ttl: number) {
   }
 }
 
+/** Where a handoff written now goes: one file per moment and session. */
+const handoffPath = (now: number) => `${dataDir('handoffs')}/${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, '-')}-${me.id.slice(0, 8)}.md`
+
 /** Asks Claude for a handoff file; `pending` is a message the cold guard held back, resent after the restart. */
 export async function askHandoff($: $, pending = '') {
   const now = await $.clock.now()
-  const path = `${dataDir('handoffs')}/${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, '-')}-${me.id.slice(0, 8)}.md`
+  const path = handoffPath(now)
   await update($, handoff, () => ({ path, state: 'writing', askedAt: now, pending, turnStarted: false }))
   await $.prompt.submit({ text: handoffPrompt(path) }).catch(() => failHandoff($, 'the request could not be sent'))
 }
@@ -196,6 +199,26 @@ export async function checkHandoff($: $) {
   }
   await update($, handoff, x => (x ? { ...x, state: 'ready' as const } : x))
   await $.ui.toast('Handoff ready. Press c in the pane: clear this session and restart from it.')
+}
+
+/**
+ * A compaction's summary saved as a handoff, ready for `c`: the session can restart from it even when no handoff
+ * was asked for. A handoff asked by hand and still being written is replaced, its held message kept. A failed write
+ * says so and changes nothing; it never throws, so the compaction's hook chain always goes on.
+ */
+export async function saveCompactHandoff($: $, summary: string) {
+  const text = summary.trim()
+  if (text.length < 200) return // as checkHandoff: too short to restart from
+  const now = await $.clock.now()
+  const path = handoffPath(now)
+  try {
+    await $.fs.write(path, `# Handoff\n\nThe summary of the compaction at ${new Date(now).toISOString()}.\n\n${text}\n`)
+  } catch {
+    $.ui.toast('Handoff not written: the compaction summary could not be saved.')
+    return
+  }
+  await update($, handoff, h => ({ path, state: 'ready' as const, askedAt: now, pending: h?.pending ?? '', turnStarted: false }))
+  $.ui.toast('Compaction saved as a handoff. Press c in the pane: clear this session and restart from it.')
 }
 
 /** /clear, then the handoff as the fresh session's first prompt. */
