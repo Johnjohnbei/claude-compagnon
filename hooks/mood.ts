@@ -11,15 +11,16 @@ export const activeAgents = <A extends { status: string }>(list: A[]): A[] => li
 
 /** In flight for this long: worth a look (amber, `view`). */
 export const STUCK_MS = 600_000
-type Run = { status: string; firstSeen: number; runStart?: number; isTeammate?: boolean }
+type Run = { status: string; firstSeen: number; runStart?: number; isPaneTeammate?: boolean }
 /** When the agent's current run began: it entered `running` or `waiting` then, not when it was first seen (a teammate idle for 40 min and woken is not 40 min in). */
 export const runStartOf = (a: Run): number => a.runStart ?? a.firstSeen
 export const isLong = (a: Run, now: number): boolean => isInFlight(a.status) && now - runStartOf(a) > STUCK_MS
 /**
- * Possibly stuck: a teammate in flight that long. A teammate's status is read from its team's roster, and a pane that dies
- * leaves `running` standing (AgentInfo.status); a subagent has a real loop here, so a long run is work, not a doubt.
+ * Possibly stuck: a teammate in a terminal pane of its own in flight that long. Its status is read from its team's roster and
+ * "a pane that is closed or dies leaves that word standing" (AgentInfo.status); a subagent or an in-process teammate has a
+ * real loop here, so a long run is work, not a doubt.
  */
-export const isStuck = (a: Run, now: number): boolean => a.isTeammate === true && isLong(a, now)
+export const isStuck = (a: Run, now: number): boolean => a.isPaneTeammate === true && isLong(a, now)
 /** The agents that make the session busy: in flight and not stuck. A stuck teammate is listed in amber and keeps nothing alive. */
 export const busyAgents = <A extends Run>(list: A[], now: number): A[] => list.filter(a => isInFlight(a.status) && !isStuck(a, now))
 

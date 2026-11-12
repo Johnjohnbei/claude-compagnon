@@ -51,8 +51,8 @@ export type SeenModels = Partial<Record<Tier, string>>
 export type RunningTool = { id: string; tool: string; label: string; start: number }
 
 export type BackgroundTask = { id: string; type: string; label: string; firstSeen: number }
-/** `isTeammate`: a teammate (its status is read from a roster and can stand stale). `runStart`: when the agent last entered `running` or `waiting` (a woken teammate starts a new run). `parentId`: the agent whose loop spawned it (`$.agent.list()`), absent when the main loop did. */
-export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number; parentId?: string; runStart?: number; isTeammate?: boolean }
+/** `isPaneTeammate`: a teammate in a terminal pane of its own (its id is its address; its status is read from a roster and can stand stale). `runStart`: when the agent last entered `running` or `waiting` (a woken teammate starts a new run). `parentId`: the agent whose loop spawned it (`$.agent.list()`), absent when the main loop did. */
+export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number; parentId?: string; runStart?: number; isPaneTeammate?: boolean }
 /** A permission prompt waiting for the person (`idle_prompt` is rest, never recorded here). `agentId`: the subagent that raised it, absent for the main loop. */
 export type Waiting = { agentId?: string; kind: string; message: string; at: number }
 

@@ -188,7 +188,8 @@ export async function refreshAgents($: $) {
       type: a.type,
       status: a.status,
       parentId: a.parentId,
-      isTeammate: a.teammateId !== undefined,
+      // AgentInfo.id: "A teammate in a terminal pane of its own runs no loop here: its id is its address." (teammateId, `<name>@<team>`)
+      isPaneTeammate: a.teammateId !== undefined && a.id === a.teammateId,
       firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
       // A run begins when the status enters running or waiting, carries on while it stays there, and is remembered once it ended (its duration).
       runStart: isInFlight(a.status) ? (isInFlight(was.find(w => w.id === a.id)?.status ?? '') ? (was.find(w => w.id === a.id)?.runStart ?? was.find(w => w.id === a.id)?.firstSeen) : now) : was.find(w => w.id === a.id)?.runStart,

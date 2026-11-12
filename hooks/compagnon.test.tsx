@@ -1000,7 +1000,7 @@ test('an agent run starts when it enters running, a stuck one keeps nothing aliv
   const woken = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000 }
   expect(activityOf(0, 0, [woken], LIVE)).toEqual({ state: 'working', since: LIVE - 20_000 }) // 20 s, not 40 min
   expect(isStuck(woken, LIVE)).toBe(false)
-  const dead = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - STUCK_MS - 1, isTeammate: true } // a teammate pane that died stays running
+  const dead = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - STUCK_MS - 1, isPaneTeammate: true } // a teammate pane that died stays running
   expect(isStuck(dead, LIVE)).toBe(true)
   // a subagent has a real loop: 12 minutes of work is work, the face stays on it and the pane keeps moving (amber is only a look)
   const long = { status: 'running', firstSeen: LIVE - 12 * 60_000 }
@@ -1013,6 +1013,13 @@ test('an agent run starts when it enters running, a stuck one keeps nothing aliv
   expect(isStuck({ status: 'idle', firstSeen: LIVE - 40 * 60_000 }, LIVE)).toBe(false)
   // a main turn in flight still counts, with the stuck agent beside it
   expect(activityOf(LIVE - 5_000, 0, [dead], LIVE)).toEqual({ state: 'working', since: LIVE - 5_000 })
+})
+
+test('an in-process teammate has a real loop: 12 minutes running is work, only a pane teammate can stand stale', async () => {
+  const inProcess = { status: 'running', firstSeen: LIVE - 12 * 60_000, isPaneTeammate: false }
+  expect(isStuck(inProcess, LIVE)).toBe(false)
+  expect(isBusy(0, [inProcess], LIVE)).toBe(true)
+  expect(activityOf(0, 0, [inProcess], LIVE)).toEqual({ state: 'working', since: LIVE - 12 * 60_000 })
 })
 
 test('a teammate that is idle or pending is not in flight: it neither works nor moves the pane', async () => {
@@ -1550,8 +1557,8 @@ test('a teammate idle or pending shows on one dim line, a stuck agent in amber w
   mockState(on, { ...HEALTHY, running: [], agents: [
     { id: 't1', label: 'reviewer', type: 'teammate', status: 'idle', firstSeen: LIVE - 40 * 60_000 },
     { id: 't2', label: 'planner', type: 'teammate', status: 'pending', firstSeen: LIVE - 60_000 },
-    { id: 's1', label: 'dead pane', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 700_000, isTeammate: true },
-    { id: 'w1', label: 'woken one', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000, isTeammate: true },
+    { id: 's1', label: 'dead pane', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 700_000, isPaneTeammate: true },
+    { id: 'w1', label: 'woken one', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000, isPaneTeammate: true },
   ] })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /^idle {2}reviewer, planner$/ }))?.props.dimColor).toBe(true)
@@ -1563,8 +1570,22 @@ test('a teammate idle or pending shows on one dim line, a stuck agent in amber w
 })
 
 test('the Scouts card times a scout from its current run, like the sections', async ($, on) => {
-  mockState(on, { ...OPEN, agents: [{ id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000, isTeammate: true }] })
+  mockState(on, { ...OPEN, agents: [{ id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000, isPaneTeammate: true }] })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /^● search 0:20 · map$/ }))?.text).toBeDefined()
   await ui.unmount()
+})
+
+test('only a teammate whose id is its address (a terminal pane) is marked as a pane teammate', async ($, on) => {
+  const { clock, atoms, lists } = animationHarness(on)
+  lists.agents = [
+    { id: 'bob@team', teammateId: 'bob@team', description: 'pane', type: 'teammate', status: 'running' },
+    { id: 'ag-7', teammateId: 'amy@team', description: 'in process', type: 'teammate', status: 'running' },
+    { id: 'ag-8', description: 'subagent', type: 'Explore', status: 'running' },
+  ]
+  await clock.settle()
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  await $.turn.complete(complete('answer'))
+  const rows = atoms.get('agents') as Array<{ id: string; isPaneTeammate: boolean }>
+  expect(rows.map(r => [r.id, r.isPaneTeammate])).toEqual([['bob@team', true], ['ag-7', false], ['ag-8', false]])
 })
