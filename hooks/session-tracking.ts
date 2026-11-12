@@ -1,0 +1,170 @@
+// The pane's bookkeeping, extracted from register.tsx (over its size): what keeps the state the cards read current,
+// from the engine's figures and events, and the 15 s poll that refreshes it.
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface } from 'claude-code'
+
+import type { AgentRow, CacheInfo, CacheVerdict, LogKind, SeenModels, TaskRow, Usage } from '../types'
+import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
+import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
+import { contextParts } from './load-report'
+import { cacheFromRelay, cacheState, costDelta, dayKey, pushLog, recordSample, ttlMs, type DailySamples } from './logic'
+
+// Declared again in each module that touches them: the state scan reads each module alone.
+const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
+const cache = atom({ plugin: 'compagnon', key: 'cache' } as const, null, { shape: 'v1' })
+const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
+const background = atom({ plugin: 'compagnon', key: 'background' } as const, [], { shape: 'v1' })
+const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v1' })
+const usage = atom({ plugin: 'compagnon', key: 'usage' } as const, null, { shape: 'v1' })
+const tick = atom({ plugin: 'compagnon', key: 'tick' } as const, 0, { shape: 'v1' })
+const journal = atom({ plugin: 'compagnon', key: 'journal' } as const, [], { shape: 'v1' })
+const costs = atom({ plugin: 'compagnon', key: 'costs' } as const, [], { shape: 'v1' })
+const costMark = atom({ plugin: 'compagnon', key: 'costMark' } as const, 0, { shape: 'v1' })
+const advisor = atom({ plugin: 'compagnon', key: 'advisor' } as const, { calls: 0, lastAt: 0, pending: 0 }, { shape: 'v1' })
+const ctxParts = atom({ plugin: 'compagnon', key: 'ctxParts' } as const, [], { shape: 'v1' })
+const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v1' })
+const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
+const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
+const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
+
+const TICK_MS = 15_000
+
+type $ = EngineInterface
+
+/** The panel's bookkeeping never fails a prompt or a tool call: a broken update is dropped, the work goes on. */
+export const quietly = async (work: () => Promise<unknown>): Promise<void> => {
+  try {
+    await work()
+  } catch {
+    // ponytail: silent on purpose; a stale card beats a blocked session
+  }
+}
+
+export async function refreshUsage($: $) {
+  const u = await $.session.usage()
+  const model = await $.session.model()
+  const snap: Usage = {
+    model,
+    contextPct: u.context.percent ?? 0,
+    contextTokens: u.context.tokens ?? 0,
+    contextWindow: u.context.window,
+    limits: u.rateLimits.map((l: Usage['limits'][number]) => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt })),
+    costUsd: u.cost?.usd ?? 0,
+  }
+  await update($, usage, () => snap)
+  const week = snap.limits.find(l => l.kind === 'seven_day')?.percentUsed
+  if (week !== undefined) {
+    const was = ((await $.store.get('weekPeaks')) ?? {}) as DailySamples
+    await $.store.set('weekPeaks', recordSample(was, dayKey(await $.clock.now()), week))
+  }
+}
+
+// The status line is the only place the engine hands out cache figures; statusline.js relays them to a file.
+export async function refreshCache($: $) {
+  try {
+    const dir = (await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? '/tmp'
+    const relayed = JSON.parse(await $.fs.read(`${dir}/claude-ctx-${await $.session.id()}.json`)).prompt_cache
+    await update($, cache, () => cacheFromRelay(relayed))
+  } catch {
+    await update($, cache, () => null) // no relay yet: cacheState falls back to the 1 h TTL rule
+  }
+}
+
+/** Until when a keep-warm ping holds the cache warm: 0 without a successful ping (the status line goes stale after one). */
+export const warmUntilOf = (kw: { lastPingAt: number } | null, c: CacheInfo | null) => (kw?.lastPingAt ? kw.lastPingAt + ttlMs(c) : 0)
+
+/** The cache verdict now, keep-warm pings included. */
+export async function verdictNow($: $): Promise<CacheVerdict> {
+  const [u, c, last, kw, now] = await Promise.all([read($, usage), read($, cache), read($, lastTurnEnd), read($, keepWarm), $.clock.now()])
+  return cacheState(c, now, last, u?.contextTokens ?? 0, warmUntilOf(kw, c))
+}
+
+/** The session's task list, kept from the main loop's and subagents' task tools (they write the same list). */
+export async function trackTasks($: $, tool: string, input: Record<string, unknown>, result: unknown) {
+  const res = result as { task?: { id: string; subject: string } } | undefined
+  const created = res?.task
+  if (tool === 'TaskCreate' && created) await update($, tasks, list => [...list, { id: created.id, subject: created.subject, status: 'pending' as const }])
+  if (tool === 'TaskUpdate' && typeof input.taskId === 'string')
+    await update($, tasks, list => list.map(t => (t.id === input.taskId ? { ...t, status: (input.status as TaskRow['status']) ?? t.status, subject: (input.subject as string) ?? t.subject } : t)))
+  if (tool === 'TodoWrite' && Array.isArray(input.todos))
+    await update($, tasks, () => (input.todos as Array<{ content: string; status: TaskRow['status'] }>).map((t, i) => ({ id: `todo-${i}`, subject: t.content, status: t.status })))
+  if (tool === 'ProposeGoal' && typeof input.condition === 'string') {
+    const startedAt = await $.clock.now()
+    await update($, goal, () => ({ condition: input.condition as string, startedAt }))
+  }
+}
+
+export async function stopTask($: $, id: string) {
+  await $.tool.call({ tool: 'TaskStop', task_id: id })
+  await update($, background, list => list.filter(t => t.id !== id))
+}
+
+export async function refreshAgents($: $) {
+  const now = await $.clock.now()
+  const list = await $.agent.list()
+  await update($, agents, (was: AgentRow[]) =>
+    list.map((a: { id: string; description: string; type: string; status: string }) => ({
+      id: a.id,
+      label: a.description,
+      type: a.type,
+      status: a.status,
+      firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
+      // The moment it was first seen finished: the card shows how long it ran.
+      endedAt: ['completed', 'failed', 'killed'].includes(a.status) ? (was.find(w => w.id === a.id)?.endedAt ?? now) : undefined,
+    })),
+  )
+}
+
+/** One line of the session journal. */
+export async function note($: $, kind: LogKind, text: string) {
+  const at = await $.clock.now()
+  await update($, journal, list => pushLog(list, { at, kind, text }))
+}
+
+/** The ids the engine reported, kept across sessions: a newer id for a tier is a release, said once; an older one is a fallback or another window's alias, ignored (`releaseOf`). */
+let seenNow: SeenModels | null = null
+export async function trackModel($: $, model: unknown) {
+  if (typeof model !== 'string' || model === '') return
+  seenNow ??= ((await $.store.get('seenModels')) ?? {}) as SeenModels
+  const learned = releaseOf(seenNow, model)
+  if (learned.seen === seenNow) return
+  seenNow = learned.seen
+  await $.store.set('seenModels', seenNow)
+  await update($, seen, () => learned.seen)
+  if (!learned.changed) return
+  const { tier, from, to } = learned.changed
+  const change = `${TIER_NAME[tier]} ${versionOf(from) ?? from} → ${versionOf(to) ?? to}`
+  await note($, 'release', change)
+  await $.ui.toast(`compagnon : nouvelle version, ${change}`)
+}
+
+/** At a main-loop turn's end: what the turn cost (the cost figure's move), and what the context holds. */
+export async function recordTurn($: $) {
+  const [u, mark, adv, p] = await Promise.all([read($, usage), read($, costMark), read($, advisor), read($, pin)])
+  if (!u) return
+  const at = await $.clock.now()
+  const usdMoved = costDelta(mark, u.costUsd)
+  await update($, costMark, () => u.costUsd)
+  if (usdMoved > 0 || adv.pending > 0) await update($, costs, list => [...list, { at, usd: usdMoved, tier: p?.tier ?? tierOf(u.model), advisorCalls: adv.pending }].slice(-200))
+  await update($, advisor, a => ({ ...a, pending: 0 }))
+  // `full` counts each file on its own; `summary` spreads the remainder over « System tools » and understates the memory (measured: 27 k against 36 k).
+  const full = (await $.session.usage({ breakdown: 'full' })) as { context?: { breakdown?: { categories?: Array<{ name: string; tokens: number; kind?: string }> } } }
+  await update($, ctxParts, () => contextParts(full.context?.breakdown?.categories ?? []))
+}
+
+// ponytail: one 15 s poll for ages, agents and usage (all free calls); a reload drops it and starts another.
+export async function pollForever($: $) {
+  for (;;) {
+    await $.clock.sleep(TICK_MS)
+    // One failed refresh (an engine call that rejects, a git missing) used to end this loop for the whole session: the
+    // cards froze and the ledger's heartbeat stopped. Each turn of the loop is now its own bookkeeping.
+    await quietly(async () => {
+      await update($, tick, (n: number) => n + 1)
+      const n = await read($, tick)
+      await Promise.allSettled([refreshAgents($), refreshUsage($), refreshCache($), refreshCollisions($)])
+      // Not awaited: a slow ping must not hold the refreshes and the ledger's heartbeat (keepWarmTick skips a second ping).
+      void quietly(async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
+      if (n % 4 === 0) await writeLedger($) // the ledger's heartbeat: a ledger quiet for 15 min is a closed session
+    })
+  }
+}
