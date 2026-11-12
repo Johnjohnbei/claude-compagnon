@@ -37,10 +37,15 @@ export const TIER_NAME: Record<Tier, string> = byTier(t => t.name)
 export const versionOf = (model: string): string | null =>
   model.match(/-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?(?:\[1m\])?$/)?.slice(1).filter(Boolean).join('.') || null
 
-/** "Opus 5.5" for a resolved id, "Opus" for an alias. */
+/**
+ * "Opus 5.5" for a resolved id, "Opus" for an alias. An id that names no tier is shown as it is: dressing it as the default
+ * tier would print "Opus 9.9" for a model that is not Opus.
+ */
 export const modelLabel = (model: string): string => {
+  const tier = tierIn(model)
+  if (!tier) return model || TIER_NAME[DEFAULT_TIER]
   const version = versionOf(model)
-  return version ? `${TIER_NAME[tierOf(model)]} ${version}` : TIER_NAME[tierOf(model)]
+  return version ? `${TIER_NAME[tier]} ${version}` : TIER_NAME[tier]
 }
 
 /** Engine version from which `turn.step` accepts an alias; before it the alias reaches the API as is and the request fails. */
@@ -138,6 +143,23 @@ export function keepWarmDue(now: number, lastActivity: number, ttl: number, unti
 export const pingMissed = (u: { cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null }): boolean => {
   const written = u.cache_creation_input_tokens ?? 0
   return written > 2_000 && written > 0.1 * Math.max(1, u.cache_read_input_tokens ?? 0)
+}
+
+/**
+ * Another session's ledger file, read back; null when it is not one. The file is written by another process and may be
+ * cut short, from an older version or edited by hand: valid JSON is not enough, a ledger without `files` used to throw in
+ * every later collision check. A file entry without its path or time is dropped, the rest of the ledger kept.
+ */
+export function asLedger(raw: unknown): Ledger | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  if (typeof r.id !== 'string' || typeof r.updatedAt !== 'number' || typeof r.files !== 'object' || r.files === null) return null
+  const files = Object.fromEntries(
+    Object.entries(r.files as Record<string, unknown>).filter(
+      (entry): entry is [string, { path: string; at: number }] => typeof (entry[1] as { path?: unknown })?.path === 'string' && typeof (entry[1] as { at?: unknown })?.at === 'number',
+    ),
+  )
+  return { id: r.id, title: typeof r.title === 'string' ? r.title : '', updatedAt: r.updatedAt, ended: r.ended === true, files }
 }
 
 /** Edits another open session made, in the window, to files this session edited (Collision Guard, inematds/5-mods). */
@@ -338,6 +360,15 @@ export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; 
   if (!from || !versionOf(from)) return { seen: { ...seen, [tier]: model }, changed: null }
   if (compareVersions(model, from) <= 0) return { seen, changed: null }
   return { seen: { ...seen, [tier]: model }, changed: { tier, from, to: model } }
+}
+
+/**
+ * A token count option ("150000", "150k", "1,5 k", "150 000"); null when it reads as no count, so the caller keeps its
+ * default. `Number('1.5k'.replace(/k$/, '000'))` used to read « 1.5k » as 1.5 tokens, a guard that asked before every send.
+ */
+export function tokensOption(value: unknown): number | null {
+  const m = String(value ?? '').replace(/\s+/g, '').replace(',', '.').match(/^(\d+(?:\.\d+)?)(k?)$/i)
+  return m ? Math.round(Number(m[1]) * (m[2] ? 1000 : 1)) : null
 }
 
 /** A boolean option, whichever way the engine hands it (a boolean or the text "true"/"false"): on unless it says off. */

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger, LogEntry } from '../types'
-import { advise, adviseClassified, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, DEFAULT_TIER, RULES, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, adviseClassified, asLedger, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, DEFAULT_TIER, RULES, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, tokensOption, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -217,6 +217,28 @@ test('a collision is another live session editing the same file in the window, u
   expect(collisionsWith(mine, [other], NOW, 30 * 60_000)).toEqual([{ file: 'a.ts', who: 'refonte hub', at: NOW - 5 * 60_000 }])
 })
 
+test('another session ledger that is valid JSON but not a ledger is dropped or trimmed, never thrown on', async () => {
+  for (const raw of [null, 3, 'x', [], {}, { id: 'a', updatedAt: NOW }, { id: 'a', updatedAt: 'hier', files: {} }, { id: 1, updatedAt: NOW, files: {} }])
+    expect(asLedger(raw)).toBe(null)
+  const odd = asLedger({ id: 'abcdef12-x', updatedAt: NOW, files: { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: NOW - 60_000 }, 'c:/r/b.ts': { at: NOW }, 'c:/r/c.ts': null } })
+  expect(odd).toEqual({ id: 'abcdef12-x', title: '', updatedAt: NOW, ended: false, files: { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: NOW - 60_000 } } })
+  // what used to throw in every collision check of the session now reads
+  const mine = { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: NOW }, 'c:/r/b.ts': { path: 'C:/r/b.ts', at: NOW } }
+  expect(collisionsWith(mine, [odd!], NOW, 30 * 60_000).map(c => c.file)).toEqual(['a.ts'])
+  expect(collisionFor('c:/r/b.ts', [odd!], NOW, 30 * 60_000, new Map())).toBe(null)
+})
+
+test('a token count option reads decimals, a k and a thousands space; anything else keeps the default', async () => {
+  expect(tokensOption('150000')).toBe(150_000)
+  expect(tokensOption('150k')).toBe(150_000)
+  expect(tokensOption('1.5k')).toBe(1_500) // it used to read as 1.5 tokens: a guard before every cold send
+  expect(tokensOption('1,5 k')).toBe(1_500)
+  expect(tokensOption('150 000')).toBe(150_000)
+  expect(tokensOption('0')).toBe(0) // 0 = guard off, a real value
+  expect(tokensOption(200000)).toBe(200_000)
+  for (const v of ['', undefined, null, 'abc', '-5', '1e5', '150kk']) expect(tokensOption(v)).toBe(null)
+})
+
 test('goal progress counts live tasks and gives an ETA after two are done', async () => {
   const t = (id: string, status: 'pending' | 'in_progress' | 'completed' | 'deleted') => ({ id, subject: id, status })
   expect(goalProgress([t('1', 'completed'), t('2', 'pending'), t('3', 'deleted')], NOW - 600_000, NOW)).toEqual({ done: 1, total: 2, pct: 50, etaMs: null })
@@ -392,8 +414,11 @@ test('every tier the rules, the labels and the names use exists in TIERS, and an
   for (const model of ['', 'gpt-5', 'mistral-large-2', 'claude-unknown-9-9']) {
     expect(tierOf(model)).toBe(DEFAULT_TIER)
     expect(releaseOf({}, model)).toEqual({ seen: {}, changed: null })
-    expect(modelLabel(model).startsWith(TIER_NAME[DEFAULT_TIER])).toBe(true)
   }
+  // An unknown id routes as the default tier but is shown as it is, never as « Opus 9.9 ».
+  expect(modelLabel('claude-unknown-9-9')).toBe('claude-unknown-9-9')
+  expect(modelLabel('gpt-5')).toBe('gpt-5')
+  expect(modelLabel('')).toBe(TIER_NAME[DEFAULT_TIER])
   expect(tierOf('claude-haiku-5-5')).toBe('haiku')
   expect(advise('rédige une réponse pour ce message reçu ce matin')?.tier).toBe(DEFAULT_TIER)
 })

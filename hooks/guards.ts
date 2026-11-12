@@ -5,7 +5,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Ledger } from '../types'
-import { collisionFor, collisionsWith, continuationPrompt, handoffPrompt, keepWarmDue, pingMissed } from './logic'
+import { asLedger, collisionFor, collisionsWith, continuationPrompt, handoffPrompt, keepWarmDue, pingMissed } from './logic'
 
 type $ = EngineInterface
 
@@ -78,7 +78,7 @@ async function readOthers($: $): Promise<Ledger[]> {
   const rows = await Promise.all(
     entries
       .filter(f => f.name.endsWith('.json') && f.name !== `${me.id}.json`)
-      .map(f => $.fs.read(`${dataDir('edits')}/${f.name}`).then(t => JSON.parse(t) as Ledger).catch(() => null)),
+      .map(f => $.fs.read(`${dataDir('edits')}/${f.name}`).then(t => asLedger(JSON.parse(t))).catch(() => null)),
   )
   return rows.filter((r): r is Ledger => r !== null && !r.ended && now - r.updatedAt <= LIVE_MS)
 }

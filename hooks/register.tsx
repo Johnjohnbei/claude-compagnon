@@ -6,7 +6,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, RouteRecord, SeenModels, TaskRow, Tier, Usage } from '../types'
 import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard, Schema } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, cacheFromRelay, cacheState, chargeReport, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, needsClassifier, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
+import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, cacheFromRelay, cacheState, chargeReport, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, needsClassifier, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, tokensOption, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -226,14 +226,13 @@ export const register: Register = (on, options) => {
   projects = String(options.projects ?? '').split(';').map(p => p.trim()).filter(Boolean)
   isBandShown = isOptionOn(options.showBand)
   isClassifierOn = isOptionOn(options.classify)
-  const guardOption = String(options.coldGuardTokens ?? '').trim()
-  if (guardOption !== '' && Number.isFinite(Number(guardOption.replace(/k$/i, '000')))) coldGuardTokens = Number(guardOption.replace(/k$/i, '000'))
+  coldGuardTokens = tokensOption(options.coldGuardTokens) ?? 150_000
   on('session.start', async ($, e, next) => {
     await initGuards($)
     await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff, decisions, charge)', argumentHint: '[keepwarm [h|off] | handoff | decisions | charge]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
-    void refreshRepos($)
-    void refreshUsage($)
+    void quietly(() => refreshRepos($))
+    void quietly(() => refreshUsage($))
     void quietly(async () => {
       const known = ((await $.store.get('seenModels')) ?? {}) as SeenModels
       await update($, seen, () => known)
@@ -242,12 +241,16 @@ export const register: Register = (on, options) => {
     void (async () => {
       for (;;) {
         await $.clock.sleep(TICK_MS)
-        await update($, tick, (n: number) => n + 1)
-        const n = await read($, tick)
-        await Promise.all([refreshAgents($), refreshUsage($), refreshCache($), refreshCollisions($)])
-        // Not awaited: a slow ping must not hold the refreshes and the ledger's heartbeat (keepWarmTick skips a second ping).
-        void quietly(async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
-        if (n % 4 === 0) await writeLedger($) // the ledger's heartbeat: a ledger quiet for 15 min is a closed session
+        // One failed refresh (an engine call that rejects, a git missing) used to end this loop for the whole session: the
+        // cards froze and the ledger's heartbeat stopped. Each turn of the loop is now its own bookkeeping.
+        await quietly(async () => {
+          await update($, tick, (n: number) => n + 1)
+          const n = await read($, tick)
+          await Promise.allSettled([refreshAgents($), refreshUsage($), refreshCache($), refreshCollisions($)])
+          // Not awaited: a slow ping must not hold the refreshes and the ledger's heartbeat (keepWarmTick skips a second ping).
+          void quietly(async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
+          if (n % 4 === 0) await writeLedger($) // the ledger's heartbeat: a ledger quiet for 15 min is a closed session
+        })
       }
     })()
     return next(e)
@@ -466,13 +469,18 @@ export const register: Register = (on, options) => {
       await update($, isWorking, () => false)
       await checkHandoff($)
     })
-    const ended = await $.clock.now()
-    await update($, lastTurnEnd, () => ended)
-    const list = await read($, spans)
-    await update($, parallel, () => summarizeParallel(list))
-    await Promise.all([refreshUsage($), refreshAgents($), refreshCache($)])
+    // After `next`: a failure here must not lose the turn's result (it used to throw past it).
+    await quietly(async () => {
+      const ended = await $.clock.now()
+      await update($, lastTurnEnd, () => ended)
+      const list = await read($, spans)
+      await update($, parallel, () => summarizeParallel(list))
+      await Promise.allSettled([refreshUsage($), refreshAgents($), refreshCache($)])
+    })
     await quietly(() => recordTurn($))
-    if ((await $.clock.now()) - reposAt > REPOS_MS) await refreshRepos($)
+    await quietly(async () => {
+      if ((await $.clock.now()) - reposAt > REPOS_MS) await refreshRepos($)
+    })
     return done
   })
 
