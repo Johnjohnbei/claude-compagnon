@@ -11,11 +11,12 @@ const TASK_LONG = 600_000
 const AGENT_STATUS: Record<string, string> = { running: 'running', waiting: 'waiting', failed: 'failed', pending: 'pending' }
 
 /** The one-line band above the prompt: the figures that decide whether to look at the pane. */
-export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, contextPct: number | null, liveAgents: number) {
+export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, contextPct: number | null, liveAgents: number, errors = 0) {
   const { Text } = E
   const level = contextPct === null ? 'ok' : levelOf(contextPct)
-  // ▲ marks the context that needs a look, as on the cards: the colour alone does not carry the state.
-  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${level === 'ok' ? '' : '▲ '}ctx ${Math.round(contextPct)}%`, liveAgents > 0 ? `agents ${liveAgents}` : null]
+  // ▲ marks the context that needs a look, as on the cards: the colour alone does not carry the state. ⚠ N: the mod's own
+  // errors this session, the count only (the status line and `/compagnon errors` say which).
+  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${level === 'ok' ? '' : '▲ '}ctx ${Math.round(contextPct)}%`, liveAgents > 0 ? `agents ${liveAgents}` : null, errors > 0 ? `⚠ ${errors}` : null]
   return <Text color={level === 'ok' ? undefined : COLOR[level]} dimColor={level === 'ok'} wrap="truncate-end">{parts.filter(Boolean).join(' · ')}</Text>
 }
 

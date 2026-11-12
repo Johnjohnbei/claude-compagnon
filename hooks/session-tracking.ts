@@ -3,11 +3,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { AgentRow, CacheInfo, CacheVerdict, LogKind, SeenModels, TaskRow, Usage } from '../types'
+import type { AgentRow, CacheInfo, CacheVerdict, ErrorEntry, LogKind, SeenModels, TaskRow, Usage } from '../types'
 import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
 import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
 import { contextParts } from './load-report'
-import { cacheFromRelay, cacheState, costDelta, dayKey, pushLog, recordSample, ttlMs, type DailySamples } from './logic'
+import { cacheFromRelay, cacheState, costDelta, dayKey, errorText, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples } from './logic'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -31,12 +31,40 @@ const TICK_MS = 15_000
 
 type $ = EngineInterface
 
-/** The panel's bookkeeping never fails a prompt or a tool call: a broken update is dropped, the work goes on. */
-export const quietly = async (work: () => Promise<unknown>): Promise<void> => {
+/** One write at a time: two failures at once would each read the log before the other wrote it, and one would be lost. */
+let errorWrite: Promise<void> = Promise.resolve()
+
+/**
+ * Keeps a failure in $.store (`errorLog`, the last twenty): the status line and the band show the count, `/compagnon errors`
+ * the list. Only the message is kept (errorText), with `where` naming the hook when known. Never throws.
+ */
+export function recordError($: $, err: unknown, where = ''): Promise<void> {
+  const message = errorText(err, where)
+  errorWrite = errorWrite
+    .then(async () => {
+      const [at, session] = await Promise.all([$.clock.now(), $.session.id()])
+      const list = ((await $.store.get('errorLog')) ?? []) as ErrorEntry[]
+      await $.store.set('errorLog', pushError(list, { at, session, message }))
+    })
+    .catch(() => undefined) // ponytail: the log itself failing has nowhere left to report to
+  return errorWrite
+}
+
+/** This session's recorded errors, oldest first: what the status line and the band count. */
+export async function errorsNow($: $): Promise<ErrorEntry[]> {
+  const [list, session] = await Promise.all([$.store.get('errorLog'), $.session.id()])
+  return sessionErrors((list ?? []) as ErrorEntry[], session)
+}
+
+/**
+ * The pane's bookkeeping never fails a prompt or a tool call: a broken update is dropped and the work goes on, but the failure
+ * is recorded, so a stale card says why instead of hiding a breakdown.
+ */
+export async function quietly($: $, work: () => Promise<unknown>): Promise<void> {
   try {
     await work()
-  } catch {
-    // ponytail: silent on purpose; a stale card beats a blocked session
+  } catch (err) {
+    await recordError($, err)
   }
 }
 
@@ -155,15 +183,19 @@ export async function recordTurn($: $) {
 // ponytail: one 15 s poll for ages, agents and usage (all free calls); a reload drops it and starts another.
 export async function pollForever($: $) {
   for (;;) {
-    await $.clock.sleep(TICK_MS)
+    // A wait that rejects is the environment going away (a reload, the session's end): the loop ends with it, instead of
+    // leaving a rejection nothing handles.
+    const isAwake = await $.clock.sleep(TICK_MS).then(() => true, () => false)
+    if (!isAwake) return
     // One failed refresh (an engine call that rejects, a git missing) used to end this loop for the whole session: the
-    // cards froze and the ledger's heartbeat stopped. Each turn of the loop is now its own bookkeeping.
-    await quietly(async () => {
+    // cards froze and the ledger's heartbeat stopped. Each turn of the loop is now its own bookkeeping, and each refresh
+    // records its own failure (an allSettled used to drop them all without a trace).
+    await quietly($, async () => {
       await update($, tick, (n: number) => n + 1)
       const n = await read($, tick)
-      await Promise.allSettled([refreshAgents($), refreshUsage($), refreshCache($), refreshCollisions($)])
+      await Promise.all([quietly($, () => refreshAgents($)), quietly($, () => refreshUsage($)), quietly($, () => refreshCache($)), quietly($, () => refreshCollisions($))])
       // Not awaited: a slow ping must not hold the refreshes and the ledger's heartbeat (keepWarmTick skips a second ping).
-      void quietly(async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
+      void quietly($, async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
       if (n % 4 === 0) await writeLedger($) // the ledger's heartbeat: a ledger quiet for 15 min is a closed session
     })
   }

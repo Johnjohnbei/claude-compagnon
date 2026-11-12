@@ -9,7 +9,7 @@ import { Schema } from './chain-schema'
 import { askHandoff, continueFromHandoff, setKeepWarm } from './guards'
 import { TIER_NAME, modelLabel } from './tiers'
 import { ttlMs, type DailySamples } from './logic'
-import { quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
+import { errorsNow, quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -45,7 +45,7 @@ export async function renderBand($: $, E: El) {
   const label = p ? TIER_NAME[p.tier] : u ? modelLabel(u.model) : 'compagnon'
   const total = turnCosts.reduce((s: number, t: { usd: number }) => s + t.usd, 0)
   const live = ag.filter((a: AgentRow) => a.status !== 'completed' && a.status !== 'killed').length
-  return Band(E, label, adv, total, u ? u.contextPct : null, live)
+  return Band(E, label, adv, total, u ? u.contextPct : null, live, (await errorsNow($)).length)
 }
 
 /** The pane, `columns` wide: the chain, the cards, the keys. `refreshRepos` is the `r` key. */
@@ -62,6 +62,7 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const [ho, g, taskList, verdict] = await Promise.all([read($, handoff), read($, goal), read($, tasks), verdictNow($)])
   const [log, turnCosts, adv, parts, seenIds] = await Promise.all([read($, journal), read($, costs), read($, advisor), read($, ctxParts), read($, seen)])
   const routes = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
+  const errors = await errorsNow($)
   const width = Math.min(64, columns)
   const ttl = ttlMs(c)
   // The countdown counts a keep-warm ping too: the status line's expiry is stale after one.
@@ -71,7 +72,7 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const { Box } = E
   return (
     <Box flexDirection="column">
-      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, now })}
+      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, errors, now })}
       {ContextCard(E, width, u, ho)}
       {PlanCard(E, width, u, samples, now)}
       {GoalCard(E, width, g, taskList, now)}
@@ -85,8 +86,8 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
           await update($, tick, n => n + 1)
         },
         keepWarm: () => void setKeepWarm($, isKeepWarm ? null : 2),
-        handoff: () => void quietly(() => askHandoff($)),
-        resume: () => void quietly(() => continueFromHandoff($)),
+        handoff: () => void quietly($, () => askHandoff($)),
+        resume: () => void quietly($, () => continueFromHandoff($)),
         refresh: refreshRepos,
         fold: () => void update($, isProjectsOpen, v => !v),
       })}

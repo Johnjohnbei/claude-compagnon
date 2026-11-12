@@ -33,6 +33,9 @@ export type TaskRow = { id: string; subject: string; status: 'pending' | 'in_pro
 /** The session's goal (`/goal <condition>` or ProposeGoal), measured on the native task list. */
 export type Goal = { condition: string; startedAt: number }
 
+/** One failure of the mod's own bookkeeping, kept in $.store under `errorLog`: what failed, never the request it failed on. */
+export type ErrorEntry = { at: number; session: string; message: string }
+
 /** One line of the session journal: what the mod decided or saw, newest last. */
 export type LogKind = 'route' | 'advisor' | 'spawn' | 'release'
 export type LogEntry = { at: number; kind: LogKind; text: string }

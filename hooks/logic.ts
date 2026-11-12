@@ -1,6 +1,6 @@
 // Pure logic of the companion pane: no `$`, so the tests run it directly. The tiers, the request routing and the
 // load report live in tiers.ts, request-routing.ts and load-report.ts.
-import type { CacheInfo, CacheVerdict, Collision, Ledger, Level, LogEntry, ParallelSummary, RepoState, TaskRow, ToolSpan, TurnCost } from '../types'
+import type { CacheInfo, CacheVerdict, Collision, ErrorEntry, Ledger, Level, LogEntry, ParallelSummary, RepoState, TaskRow, ToolSpan, TurnCost } from '../types'
 
 /** The cache is per model: below this, dropping to a cheaper model still pays. */
 export const CACHE_KEEP_TOKENS = 40_000
@@ -199,6 +199,40 @@ export function parseStatus(name: string, out: string): Omit<RepoState, 'dir' | 
 /** The journal keeps the last dozen lines: it answers "what just happened", not "what happened today". */
 export const LOG_MAX = 12
 export const pushLog = (list: LogEntry[], entry: LogEntry): LogEntry[] => [...list, { ...entry, text: entry.text.replace(/\s+/g, ' ').slice(0, 100) }].slice(-LOG_MAX)
+
+/** The error log keeps the last twenty failures, each message cut to 120 characters. */
+export const ERROR_LOG_MAX = 20
+const ERROR_TEXT_MAX = 120
+
+/**
+ * The message of whatever was thrown (an Error, a hook failure, a string), on one line. Only the message is kept: never the
+ * input of the call that failed, so a request's text does not reach the log through it.
+ */
+export function errorText(err: unknown, where = ''): string {
+  const m = (err as { message?: unknown } | null | undefined)?.message
+  const raw = typeof m === 'string' && m.trim() ? m : typeof err === 'string' && err.trim() ? err : (err as { kind?: unknown } | null | undefined)?.kind === 'timeout' ? 'timed out' : 'unknown error'
+  return `${where ? `${where}: ` : ''}${raw}`.replace(/\s+/g, ' ').trim().slice(0, ERROR_TEXT_MAX)
+}
+
+export const pushError = (list: ErrorEntry[], entry: ErrorEntry): ErrorEntry[] =>
+  [...list, { ...entry, message: entry.message.replace(/\s+/g, ' ').trim().slice(0, ERROR_TEXT_MAX) }].slice(-ERROR_LOG_MAX)
+
+/** The log is kept across sessions (for `/compagnon errors`); the pane and the band count the errors of this session only. */
+export const sessionErrors = (list: ErrorEntry[], session: string): ErrorEntry[] => list.filter(e => e.session === session)
+
+const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+
+/** The status line's one item: `⚠ 2 errors, last: <message cut short>`; null when there is none. */
+export const errorSummary = (list: ErrorEntry[]): string | null => {
+  const last = list[list.length - 1]
+  return last ? `⚠ ${list.length} error${list.length > 1 ? 's' : ''}, last: ${cut(last.message, 48)}` : null
+}
+
+/** What `/compagnon errors` prints: the last twenty, each with its date and time, newest last. */
+export function errorReport(list: ErrorEntry[]): string {
+  if (list.length === 0) return 'No error recorded.'
+  return [`${list.length} error${list.length > 1 ? 's' : ''} (last ${ERROR_LOG_MAX} kept, newest last):`, ...list.map(e => `${shortStamp(e.at)}  ${e.message}`)].join('\n')
+}
 
 /** What the session cost moved by between two readings; never negative (a reload reads a lower figure). */
 export const costDelta = (mark: number, now: number): number => Math.max(0, now - mark)

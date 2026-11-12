@@ -1,10 +1,10 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
-import type { CacheInfo, Ledger, LogEntry } from '../types'
+import type { CacheInfo, ErrorEntry, Ledger, LogEntry } from '../types'
 import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLabel, releaseOf, versionOf } from './tiers'
 import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { chargeReport, contextParts } from './load-report'
-import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushLog, recordSample, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
+import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -260,6 +260,7 @@ const PANE = {
 test('the pane draws its cards before any measure', async ($, on) => {
   on('store.get', () => ({ value: undefined }))
   on('clock.now', () => ({ value: NOW }))
+  on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   for (const title of ['Model', 'Context', '7-day plan', 'Process', 'Parallelism', 'Projects']) {
     // the title sits in the card's top border: ╭─ Title ─…
@@ -327,6 +328,7 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
+  on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
   for (const words of [/^ {2}50 min$/, /kept warm/, /handed to Sonnet$/, /^2\/4$/, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
@@ -357,6 +359,7 @@ test('the band above the prompt is one line of figures', async ($, on) => {
   })
   on('store.get', () => ({ value: undefined }))
   on('clock.now', () => ({ value: LIVE }))
+  on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({
     plugin: 'compagnon',
     component: 'AbovePrompt',
@@ -454,6 +457,7 @@ test('wide pane: the advisor sits beside the main session, the three scouts side
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
+  on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 100 }, surface: 'terminal' } as never)
   for (const title of ['Advisor', 'Model', 'Decisions', 'search', 'grep', 'audit']) {
     const top = new RegExp(`^╭─ ${title} ─`)
@@ -472,6 +476,7 @@ test('a narrow pane: no card spills past its width, the scouts stack, and a stat
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
+  on('session.id', () => ({ value: 'session-1' }))
   for (const columns of [36, 24]) {
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
     // every border line of every card fits the pane (cards had a 24-column floor, the scouts 12 each side by side)
@@ -625,4 +630,91 @@ test('contract with claude-config: the prompt_cache the status line relays reads
   // a key of the wrong type reads as absent, never as a wrong number
   const odd = cacheFromRelay({ warm: 'yes', ttl: 3600, expires_at: '1793990000', hit_ratio: NaN })
   expect(odd).toEqual({ warm: false, caching: false, ttl: undefined, expiresAt: null, recacheTokensIfCold: null, hitRatio: null })
+})
+
+test('the error log keeps the last twenty, each message on one line and cut short, and counts this session only', async () => {
+  let list: ErrorEntry[] = []
+  for (let i = 0; i < ERROR_LOG_MAX + 4; i++) list = pushError(list, { at: NOW + i, session: i % 2 ? 's1' : 's0', message: `failure ${i}` })
+  expect(list.length).toBe(ERROR_LOG_MAX)
+  expect(list[0]?.message).toBe('failure 4')
+  expect(pushError([], { at: NOW, session: 's1', message: `a\n${'x'.repeat(300)}` })[0]?.message.length).toBe(120)
+  expect(sessionErrors(list, 's1').every(e => e.session === 's1')).toBe(true)
+  // only the message is kept: an Error, a hook failure, a string, anything else
+  expect(errorText(new Error('agent list down'))).toBe('agent list down')
+  expect(errorText({ kind: 'throw', message: 'boom', budget: 5000 }, 'tool.call')).toBe('tool.call: boom')
+  expect(errorText({ kind: 'timeout', budget: 5000 }, 'band')).toBe('band: timed out')
+  expect(errorText('plain')).toBe('plain')
+  expect(errorText(undefined)).toBe('unknown error')
+  expect(errorSummary([])).toBe(null)
+  expect(errorSummary([{ at: NOW, session: 's1', message: 'agent list down' }])).toBe('⚠ 1 error, last: agent list down')
+  expect(errorSummary(list.slice(-2))).toBe('⚠ 2 errors, last: failure 23')
+  expect(errorSummary([{ at: NOW, session: 's1', message: 'y'.repeat(100) }])?.endsWith('…')).toBe(true)
+  expect(errorReport([])).toBe('No error recorded.')
+  const report = errorReport(list.slice(-2))
+  expect(report.split('\n').length).toBe(3)
+  expect(report).toContain('failure 23')
+  expect(report.split('\n')[1]).toMatch(/^\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2} {2}failure 22$/)
+})
+
+test('a failed refresh is recorded and shown on the status line, a good loop adds nothing, and the 15 s loop keeps going', async ($, on) => {
+  const clock = mock.clock(on, { now: LIVE })
+  const store = new Map<string, unknown>()
+  on('store.get', (_, e) => ({ value: store.get((e as unknown as { key: string }).key) }))
+  on('store.set', (_, e) => {
+    const { key, value } = e as unknown as { key: string; value: unknown }
+    store.set(key, value)
+    return { value: undefined }
+  })
+  mock.env(on, { USERPROFILE: 'C:/home/someone', TEMP: 'C:/tmp' })
+  let isAgentListDown = false
+  on('session.id', () => ({ value: 'session-1' }))
+  on('session.root', () => ({ value: 'C:/work/repo' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { context: { percent: 10, tokens: 20_000, window: 200_000 }, rateLimits: [], cost: { usd: 0 }, startedAt: LIVE } }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('command.register', () => ({ value: { command: 'compagnon' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('fs.read', () => {
+    throw new Error('no relay file') // refreshCache reads that as "no status line relay yet", not as a failure
+  })
+  on('agent.list', () => {
+    // a hook of the test's that throws is skipped: the call then rejects, as an engine call without an answer does
+    if (isAgentListDown) throw new Error('agent list down')
+    return { value: [] }
+  })
+  on('session.start', () => ({ cwd: 'C:/work/repo' }))
+  await $.session.start({ cwd: 'C:/work/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const errorLog = async () => (store.get('errorLog') ?? []) as ErrorEntry[]
+  expect(await errorLog()).toEqual([])
+  await clock.advance(15_000)
+  expect(await errorLog()).toEqual([]) // a loop that succeeds adds nothing
+  isAgentListDown = true
+  await clock.advance(15_000)
+  const log = await errorLog()
+  expect(log.length).toBe(1)
+  expect(log[0]?.message).toBe('no implementation for agent.list')
+  expect(log[0]?.session).toBe('session-1')
+  isAgentListDown = false
+  await clock.advance(15_000)
+  expect((await errorLog()).length).toBe(1)
+  isAgentListDown = true
+  await clock.advance(15_000)
+  expect((await errorLog()).length).toBe(2) // the loop went on past the first error
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const line = /agents \[0 active\] .* · ⚠ 2 errors, last: no implementation for agent\.list$/
+  expect((await ui.find({ type: 'Text', text: line }))?.text).toMatch(line)
+  await ui.unmount()
+  const band = await $.ui.mount({
+    plugin: 'compagnon',
+    component: 'AbovePrompt',
+    surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
+  } as never)
+  expect((await band.find({ type: 'Text', text: /· ⚠ 2$/ }))?.text).toMatch(/⚠ 2$/)
+  await band.unmount()
+  // `/compagnon errors` lists them with their date and time
+  const listed = (await $.command.run({ command: 'compagnon', args: 'errors' } as never)) as { text?: string }
+  expect(listed.text?.split('\n')[0]).toBe('2 errors (last 20 kept, newest last):')
+  expect(listed.text?.split('\n')[2]).toMatch(/^\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2} {2}no implementation for agent\.list$/)
 })

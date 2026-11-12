@@ -8,7 +8,7 @@ import { askHandoff } from './guards'
 import { tierOf } from './tiers'
 import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, advise, delegationHint, needsClassifier, pushRoute, route, routeRecord, settle, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { needsColdGuard } from './logic'
-import { note, quietly, refreshCache, verdictNow } from './session-tracking'
+import { note, quietly, recordError, refreshCache, verdictNow } from './session-tracking'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -24,7 +24,7 @@ let aliasSupport: Promise<boolean> | null = null
  */
 export function isAliasSupported($: $): Promise<boolean> {
   aliasSupport ??= $.session.version().then(supportsAlias, () => false).then(async ok => {
-    if (!ok) await quietly(async () => $.ui.toast('compagnon: model switching off (needs Claude Code 2.1.309 or later, or the version could not be read).'))
+    if (!ok) await quietly($, async () => $.ui.toast('compagnon: model switching off (needs Claude Code 2.1.309 or later, or the version could not be read).'))
     return ok
   })
   return aliasSupport
@@ -33,10 +33,11 @@ export function isAliasSupported($: $): Promise<boolean> {
 /**
  * The classifier layer: one Haiku call that picks the tier a request needs. Gives up after CLASSIFY_TIMEOUT_MS (or on any
  * failure, or when no label is named) so a slow or failing call never holds the prompt: the caller keeps the default.
+ * A failing call is recorded (a classifier that always fails would otherwise route on keywords alone without a word).
  */
 async function classifyTier($: $, text: string): Promise<Tier | undefined> {
   const answer = await Promise.race([
-    $.model.classify(text, Object.values(CLASSIFY_LABELS), { model: 'haiku' }),
+    $.model.classify(text, Object.values(CLASSIFY_LABELS), { model: 'haiku' }).catch(err => recordError($, err, 'classifier').then(() => undefined)),
     $.clock.sleep(CLASSIFY_TIMEOUT_MS).then(() => undefined),
   ]).catch(() => undefined)
   return typeof answer === 'string' ? tierOfLabel(answer) : undefined
@@ -48,7 +49,7 @@ async function classifyTier($: $, text: string): Promise<Tier | undefined> {
  */
 export async function coldSendGuard($: $, text: string, threshold: number): Promise<string | null> {
   let verdict: CacheVerdict | null = null
-  await quietly(async () => {
+  await quietly($, async () => {
     await refreshCache($)
     verdict = await verdictNow($)
   })
@@ -65,7 +66,7 @@ export async function coldSendGuard($: $, text: string, threshold: number): Prom
     if (!isCompacted) await $.ui.toast('Compaction refused by the engine: message sent as typed.')
   }
   if (answer === 'Handoff then fresh session') {
-    $.clock.after(300, () => void quietly(() => askHandoff($, text)))
+    $.clock.after(300, () => void quietly($, () => askHandoff($, text)))
     return 'Held by compagnon: handoff then fresh session, the message is sent again afterwards.'
   }
   if (answer === 'Cancel') return 'Cancelled by compagnon before rereading a cold cache.'

@@ -2,11 +2,11 @@
 // in its role's colour (README, the blocks table).
 import type { RenderChildren } from 'claude-code'
 
-import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, TurnCost, Usage } from '../types'
+import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, ErrorEntry, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, TurnCost, Usage } from '../types'
 import { COLOR, Card, gauge, k, plural, usd, type El } from './card-frame'
 import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
 import { SOURCE_NAME } from './request-routing'
-import { ageLabel, costSummary } from './logic'
+import { ageLabel, costSummary, errorSummary } from './logic'
 
 /** One colour per role in the chain, as in the reference video: lead, advisor, decisions, agents (ANSI names: a theme cannot hide them). */
 const ROLE = { lead: 'yellow', advisor: 'magenta', decision: 'green', agents: 'blue' } as const
@@ -135,11 +135,17 @@ function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: str
   return <Text dimColor wrap="truncate-end">{' '.repeat(Math.floor(width / 2))}{arrow} {label}</Text>
 }
 
-/** The bottom line: what is running, the advisor's calls, the decisions, the cost. */
-export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[]) {
+/** The bottom line: what is running, the advisor's calls, the decisions, the cost, and the mod's own errors when there are any. */
+export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[], errors: ErrorEntry[] = []) {
   const { Text } = E
   const live = agents.filter(a => !FINISHED.includes(a.status)).length
-  return <Text dimColor wrap="truncate-end">agents [{live} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
+  const failed = errorSummary(errors)
+  return (
+    <Text wrap="truncate-end">
+      <Text dimColor>agents [{live} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
+      {failed ? <Text color="warning"> · {failed}</Text> : null}
+    </Text>
+  )
 }
 
 export type SchemaInput = {
@@ -147,7 +153,7 @@ export type SchemaInput = {
   usage: Usage | null; decision: Decision | null; pin: Pin | null; cache: CacheInfo | null; verdict: CacheVerdict
   keepWarm: KeepWarm | null; warmLeft: number | null; ttl: number; isAuto: boolean
   advisor: AdvisorStat; turns: TurnCost[]; seen: SeenModels; parts: CtxPart[]
-  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; now: number
+  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; errors: ErrorEntry[]; now: number
 }
 
 /** The chain at a glance: advisor beside the main session, the decision layer under it, the scouts, the journal, the status line. */
@@ -194,7 +200,7 @@ export function Schema(E: El, s: SchemaInput) {
       {SwarmCards(E, total, s.agents, s.now, isWide)}
       {isWide ? null : Link(E, total, 'back', 'results')}
       {JournalCard(E, total, s.journal)}
-      {StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns)}
+      {StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns, s.errors)}
     </Box>
   )
 }

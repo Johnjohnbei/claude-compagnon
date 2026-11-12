@@ -3,15 +3,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { BackgroundTask, RouteRecord, SeenModels } from '../types'
+import type { BackgroundTask, ErrorEntry, RouteRecord, SeenModels } from '../types'
 import { askHandoff, checkHandoff, guardEdit, initGuards, nameSession, noteTurnStart, renewSession, setKeepWarm, writeLedger } from './guards'
 import { TIER_NAME } from './tiers'
 import { routeReport, spawnModel } from './request-routing'
 import { chargeReport } from './load-report'
-import { isOptionOn, normPath, parseStatus, summarizeParallel, tokensOption, touchedRepos } from './logic'
+import { errorReport, isOptionOn, normPath, parseStatus, summarizeParallel, tokensOption, touchedRepos } from './logic'
 import { renderBand, renderPane } from './pane-view'
 import { coldSendGuard, isAliasSupported, routePrompt } from './prompt-routing'
-import { note, pollForever, quietly, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
+import { note, pollForever, quietly, recordError, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -85,11 +85,11 @@ export const register: Register = (on, options) => {
   coldGuardTokens = tokensOption(options.coldGuardTokens) ?? 150_000
   on('session.start', async ($, e, next) => {
     await initGuards($)
-    await $.command.register({ name: 'compagnon', description: 'Compagnon pane (args: keepwarm [hours|off], handoff, decisions, load)', argumentHint: '[keepwarm [h|off] | handoff | decisions | load]' })
+    await $.command.register({ name: 'compagnon', description: 'Compagnon pane (args: keepwarm [hours|off], handoff, decisions, load, errors)', argumentHint: '[keepwarm [h|off] | handoff | decisions | load | errors]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
-    void quietly(() => refreshRepos($))
-    void quietly(() => refreshUsage($))
-    void quietly(async () => {
+    void quietly($, () => refreshRepos($))
+    void quietly($, () => refreshUsage($))
+    void quietly($, async () => {
       const known = ((await $.store.get('seenModels')) ?? {}) as SeenModels
       await update($, seen, () => known)
     })
@@ -110,8 +110,9 @@ export const register: Register = (on, options) => {
       return { text: chargeReport(full.context?.breakdown) }
     }
     if (verb === 'decisions') return { text: routeReport(((await $.store.get('routeLog')) ?? []) as RouteRecord[]) }
+    if (verb === 'errors') return { text: errorReport(((await $.store.get('errorLog')) ?? []) as ErrorEntry[]) }
     if (verb === 'handoff') {
-      $.clock.after(300, () => void quietly(() => askHandoff($)))
+      $.clock.after(300, () => void quietly($, () => askHandoff($)))
       return { text: 'Handoff requested: the pane then offers to restart from a fresh session (key c).' }
     }
     await $.ui.open({ id: PANE, title: 'Compagnon' })
@@ -121,18 +122,21 @@ export const register: Register = (on, options) => {
   // The goal is measured on the native task list; `/goal clear` (or stop) ends it.
   on('command.run', { command: 'goal' }, async ($, e, next) => {
     const done = await next(e)
-    await quietly(async () => {
+    await quietly($, async () => {
       const args = String(e.args ?? '').trim()
       const startedAt = await $.clock.now()
       if (/^(clear|stop|off|cancel)$/i.test(args)) await update($, goal, () => null)
       else if (args) await update($, goal, () => ({ condition: args, startedAt }))
     })
     return done
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'command.run')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   // /clear and /resume carry on under a new session id: a fresh ledger, task list and keep-warm.
   on('classic.SessionStart', { source: ['clear', 'resume'] }, async ($, e, next) => {
-    await quietly(async () => {
+    await quietly($, async () => {
       await renewSession($)
       await Promise.all([
         update($, tasks, () => []), update($, goal, () => null), update($, keepWarm, () => null), update($, lastTurnEnd, () => 0),
@@ -140,12 +144,18 @@ export const register: Register = (on, options) => {
       ])
     })
     return next(e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'classic.SessionStart')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   on('session.end', async ($, e, next) => {
-    await quietly(() => writeLedger($, true))
+    await quietly($, () => writeLedger($, true))
     return next(e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'session.end')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   // Automatic routing (user directive 2026-11-05): switch the main loop only when no warm cache is lost,
   // otherwise keep it and steer the work to a subagent on the right model.
@@ -159,19 +169,22 @@ export const register: Register = (on, options) => {
       const drop = await coldSendGuard($, text, coldGuardTokens)
       if (drop) return { drop }
     }
-    await quietly(async () => {
+    await quietly($, async () => {
       await update($, waiting, () => null)
       await update($, spans, () => [])
       hint = await routePrompt($, text, isClassifierOn)
     })
     return next(hint ? { ...e, text: text + hint } : e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'prompt.submit')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   // The pin applies to the main loop only: subagents keep the model their definition names.
   on('turn.step', async function* ($, e, next) {
     const p = await read($, pin)
     const result = yield* next(p && !e.agentId && (await isAliasSupported($)) ? { ...e, model: p.tier, effort: p.effort } : e)
-    await quietly(() => trackModel($, (result as { usage?: { model?: unknown } } | undefined)?.usage?.model))
+    await quietly($, () => trackModel($, (result as { usage?: { model?: unknown } } | undefined)?.usage?.model))
     return result
   })
 
@@ -179,20 +192,26 @@ export const register: Register = (on, options) => {
   on('session.append', async ($, e, next) => {
     const content = (e as unknown as { message?: { content?: unknown } }).message?.content
     if (Array.isArray(content) && content.some((b: { type?: string; name?: string }) => b.type === 'server_tool_use' && b.name === 'advisor'))
-      await quietly(async () => {
+      await quietly($, async () => {
         const at = await $.clock.now()
         await update($, advisor, a => ({ calls: a.calls + 1, lastAt: at, pending: a.pending + 1 }))
         await note($, 'advisor', 'consulted')
       })
     return next(e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the row is stored as it is
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'session.append')
+    return next.called ? undefined : next(e)
+  }) // own failure: the row is stored as it is
 
   // The delegation the router asked for (see delegationHint) holds even when Claude leaves the model out of the call.
   on('agent.spawn', async ($, e, next) => {
     const model = spawnModel(await read($, decision), e)
-    await quietly(() => note($, 'spawn', `${e.subagentType}${model ? ` set to ${TIER_NAME[model]}` : e.model ? ` ${e.model}` : ''}`))
+    await quietly($, () => note($, 'spawn', `${e.subagentType}${model ? ` set to ${TIER_NAME[model]}` : e.model ? ` ${e.model}` : ''}`))
     return next(model ? { ...e, model } : e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the subagent starts as asked
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'agent.spawn')
+    return next.called ? undefined : next(e)
+  }) // own failure: the subagent starts as asked
 
   on('tool.call', async ($, e, next) => {
     let start = 0
@@ -201,12 +220,12 @@ export const register: Register = (on, options) => {
     // Collision guard (from Collision Guard): another open session edited this file in the last 30 min?
     if (EDITORS.has(e.tool)) {
       let refusal: { deny: string } | null = null
-      await quietly(async () => {
+      await quietly($, async () => {
         refusal = await guardEdit($, String(input.file_path ?? input.notebook_path ?? ''))
       })
       if (refusal) return refusal as { deny: string }
     }
-    await quietly(async () => {
+    await quietly($, async () => {
       start = await $.clock.now()
       await update($, waiting, () => null)
       await update($, running, list => [...list, { id, tool: e.tool, label: labelOf(e.tool, e as unknown as Record<string, unknown>), start }])
@@ -215,31 +234,37 @@ export const register: Register = (on, options) => {
     })
     try {
       const done = await next(e)
-      if (done.result !== undefined) await quietly(() => trackTasks($, e.tool, input, done.result))
+      if (done.result !== undefined) await quietly($, () => trackTasks($, e.tool, input, done.result))
       return done
     } finally {
-      await quietly(async () => {
+      await quietly($, async () => {
         const end = await $.clock.now()
         await update($, running, list => list.filter(t => t.id !== id))
         // Only the main loop's calls measure its parallelism: a subagent's own reads are its business.
         if (!e.agentId && start > 0) await update($, spans, list => [...list, { tool: e.tool, start, end }].slice(-300))
       })
     }
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'tool.call')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   on('classic.Notification', async ($, e, next) => {
     if (e.notification_type === 'permission_prompt' || e.notification_type === 'idle_prompt') {
-      await quietly(async () => {
+      await quietly($, async () => {
         const at = await $.clock.now()
         await update($, waiting, () => ({ kind: e.notification_type, message: e.message.slice(0, 80), at }))
       })
     }
     return next(e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'classic.Notification')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   // Stop carries the background work still in flight: the only list of shells and monitors a mod can read.
   on('classic.Stop', async ($, e, next) => {
-    await quietly(async () => {
+    await quietly($, async () => {
       const now = await $.clock.now()
       const inFlight = e.background_tasks ?? []
       await update($, background, (was: BackgroundTask[]) =>
@@ -252,38 +277,44 @@ export const register: Register = (on, options) => {
       )
     })
     return next(e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'classic.Stop')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   on('turn.start', async ($, e, next) => {
     if (!e.agentId)
-      await quietly(async () => {
+      await quietly($, async () => {
         await update($, isWorking, () => true)
         await noteTurnStart($)
       })
     return next(e)
-  }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: pass the work on, never run it twice
+  }).catch(async ($, e, next) => {
+    await recordError($, next.error, 'turn.start')
+    return next.called ? undefined : next(e)
+  }) // own failure: pass the work on, never run it twice
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     // A subagent's end changes the Process card only.
     if (e.agentId) {
-      await quietly(() => refreshAgents($))
+      await quietly($, () => refreshAgents($))
       return done
     }
-    await quietly(async () => {
+    await quietly($, async () => {
       await update($, isWorking, () => false)
       await checkHandoff($)
     })
     // After `next`: a failure here must not lose the turn's result (it used to throw past it).
-    await quietly(async () => {
+    await quietly($, async () => {
       const ended = await $.clock.now()
       await update($, lastTurnEnd, () => ended)
       const list = await read($, spans)
       await update($, parallel, () => summarizeParallel(list))
-      await Promise.allSettled([refreshUsage($), refreshAgents($), refreshCache($)])
+      await Promise.all([quietly($, () => refreshUsage($)), quietly($, () => refreshAgents($)), quietly($, () => refreshCache($))])
     })
-    await quietly(() => recordTurn($))
-    await quietly(async () => {
+    await quietly($, () => recordTurn($))
+    await quietly($, async () => {
       if ((await $.clock.now()) - reposAt > REPOS_MS) await refreshRepos($)
     })
     return done
@@ -293,7 +324,10 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!isBandShown) return next(e) // nothing to show: the band is the plugins' beneath, never a null the engine refuses
     return renderBand($, $.ui.resolve(e))
-  }).catch(() => undefined) // own failure: no band, never a broken prompt area
+  }).catch(async ($, _e, next) => {
+    await recordError($, next.error, 'band')
+    return undefined // own failure: no band, never a broken prompt area
+  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, () => void refreshRepos($)))
 }
