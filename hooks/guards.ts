@@ -1,6 +1,6 @@
 // The pane's guards, extracted from register.tsx (over its size): collisions between open sessions, keep-warm
-// pings, the handoff to a fresh session, and the goal measured on the native task list.
-// Ported from inematds/5-mods (MIT): Collision Guard, Cache Keeper, Goal Meter; rewritten to compagnon's state.
+// pings and the handoff to a fresh session (the goal, from Goal Meter, is tracked in session-tracking.ts).
+// Ported from inematds/5-mods (MIT): Collision Guard, Cache Keeper; rewritten to compagnon's state.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
@@ -9,12 +9,10 @@ import { asLedger, collisionFor, collisionsWith, continuationPrompt, handoffProm
 
 type $ = EngineInterface
 
-export const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
-export const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
-export const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
-export const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
-export const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
-export const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
+const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
+const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
+const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
+const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 
 const MIN = 60_000
 /** Another session's edit this recent counts; a ledger quiet this long belongs to a closed session. */

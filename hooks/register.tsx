@@ -26,13 +26,13 @@ const repos = atom({ plugin: 'compagnon', key: 'repos' } as const, [], { shape: 
 const usedRepos = atom({ plugin: 'compagnon', key: 'usedRepos' } as const, [], { shape: 'v1' })
 const advisor = atom({ plugin: 'compagnon', key: 'advisor' } as const, { calls: 0, lastAt: 0, pending: 0 }, { shape: 'v1' })
 const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v1' })
+const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
+const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
 // The guards' state, owned by guards.ts: declared again here because the state scan reads each module alone (as in
 // session-tracking.ts, prompt-routing.ts and pane-view.tsx).
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
-const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
-const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 
 const REPOS_MS = 60_000
