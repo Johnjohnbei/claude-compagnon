@@ -254,12 +254,12 @@ test('the pane opens compact before any measure: one row per subject, and e unfo
   on('clock.now', () => ({ value: NOW }))
   on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const rows = [/^Model {6}\S/, /^Context {4}…$/, /^7-day plan …$/, /^Process {4}idle/, /^Errors {5}none$/, /^Projects {3}0$/]
+  const rows = [/^Model {6}\S/, /^Context {4}…$/, /^7-day plan …$/, /^z Resting$/, /^Errors {5}none$/, /^Projects {3}0$/]
   for (const row of rows) expect((await ui.find({ type: 'Text', text: row }))?.text).toMatch(row)
   expect(await ui.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
   expect((await ui.find({ type: 'Button', key: 'expand' }))?.props.label).toBe('expand')
   await ui.press({ key: 'expand' })
-  for (const title of ['Model', 'Context', '7-day plan', 'Process', 'Errors', 'Projects', 'Advisor', 'Decisions', 'Scouts', 'Log']) {
+  for (const title of ['Model', 'Context', '7-day plan', 'Errors', 'Projects', 'Advisor', 'Decisions', 'Scouts', 'Log']) {
     // unfolded, the title sits in the card's top border: ╭─ Title ─…
     const top = new RegExp(`^╭─ ${title} ─`)
     expect((await ui.find({ type: 'Text', text: top }))?.text).toMatch(top)
@@ -332,7 +332,7 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /● kept warm/, /handed to Sonnet$/, /^goal 2\/4 ▰/, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
+  for (const words of [/^ {2}50 min$/, /● kept warm/, /handed to Sonnet$/, /^goal 2\/4 ▰/, /Bouton\.tsx also edited in "refonte hub mobile"/, /^RUNNING {2}1 tool · 2 agents$/, /148k \/ 200k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
   // a collision turns the Projects card's key value into ▲ 1
@@ -343,8 +343,6 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
     /seen: Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5/, /^tools 28k · skills 9k · prompt 2k$/,
     /^╭─ Decisions ─+ 2 ─╮$/, /keywords 1 · classifier 1 · default 0/, /switches to this tier/,
     /^╭─ Scouts ─+ ● 1 running ─╮$/, /^● search 0:42 · map$/, /^✓ grep {3}0:18 · calls$/, /^· audit {2}idle · review$/,
-    // the activity: the earliest agent still running started 3 min 20 s ago
-    /^● working · 3m20$/,
     /^consulted$/, /^Debugging: Opus, effort high$/,
     /agents \[2 active\] · advisor \[2 calls\] · decisions \[2\] · cost \$0\.29/,
   ]) {
@@ -499,7 +497,7 @@ test('a narrow compact pane keeps every row inside its width and its key value r
   mockState(on, STATE)
   for (const columns of [40, 24]) {
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
-    for (const row of [/^Context {4}▲ 74%$/, /^Errors {5}none$/, /^Projects {3}▲ 1/]) {
+    for (const row of [/^Context {4}▲ 74%/, /^Errors {5}none$/, /^Projects {3}▲ 1/]) {
       const found = await ui.find({ type: 'Text', text: row })
       expect(found?.text).toMatch(row)
     }
@@ -722,8 +720,8 @@ test('a failed refresh is recorded and shown on the status line, a good loop add
   expect((await errorLog()).length).toBe(2) // the loop went on past the first error
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // compact: the Errors row says how many, in red with ✕; unfolded, the card says the last one
-  const row = await ui.find({ type: 'Text', text: /^Errors {5}✕ 2$/ })
-  expect(row?.text).toMatch(/✕ 2$/)
+  const row = await ui.find({ type: 'Text', text: /^Errors {5}✕ 2/ })
+  expect(row?.text).toMatch(/✕ 2/)
   await ui.press({ key: 'expand' })
   const line = /^✕ 2 errors, last: no implementation for agent\.list$/
   expect((await ui.find({ type: 'Text', text: line }))?.props.color).toBe('error')
@@ -767,9 +765,9 @@ test('the band and the status line count the same active agents: an ended one (c
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const lineCount = (await pane.find({ type: 'Text', text: /agents \[\d+ active\]/ }))?.text.match(/agents \[(\d+) active\]/)?.[1]
-  // the failed agent still raises the Process card (✕, a failure), which counts 4 agents running, not 5
-  expect((await pane.find({ type: 'Text', text: /^╭─ Process ─+ ✕ \d+ running ─╮$/ }))?.text).toMatch(/✕ 5 running/) // 4 agents + the Bash call
-  expect((await pane.find({ type: 'Text', text: /^✕ agent failed · failed/ }))?.props.color).toBe('error')
+  // the failed agent has its own FAILED line (red) and is not counted running: 4 agents and the Bash call run
+  expect((await pane.find({ type: 'Text', text: /^RUNNING {2}1 tool · 4 agents$/ }))?.text).toMatch(/4 agents/)
+  expect((await pane.find({ type: 'Text', text: /^agent failed · agent failed · / }))?.props.color).toBe('error')
   await pane.unmount()
   expect(bandCount).toBe('4')
   expect(lineCount).toBe(bandCount)
@@ -794,16 +792,15 @@ test('compact, each subject is one row with its key value, and the detail waits 
   mockState(on, STATE)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   for (const row of [
-    /^Model {6}Opus 5\.5$/, /^Context {4}▲ 74%$/, /^7-day plan 41%$/,
-    // the goal is folded into the Process row: its value, then the goal
-    /^Process {4}▲ 3 running · goal 2\/4$/,
+    // the chain folded to one row: the figures of the old status line sit in its note
+    /^Model {6}Opus 5\.5 · auto · 2 decisions · advisor 2 calls · \$0\.29$/, /^Context {4}▲ 74% · 148k \/ 200k$/, /^7-day plan 41% · \S+ · resets in /,
+    // what runs has its section, the goal its line in the head
+    /^RUNNING {2}1 tool · 2 agents$/, /^goal 2\/4 ▰/,
     /^Errors {5}none$/, /^Projects {3}▲ 1 · collision$/,
-    // the chain folded to the status line, the same figures
-    /^● working · 3m20 · agents \[2 active\] · advisor \[2 calls\] · decisions \[2\] · cost \$0\.29$/,
   ]) expect((await ui.find({ type: 'Text', text: row }))?.text).toMatch(row)
   // no bordered card, no detail line: they are folded, not lost
   expect(await ui.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
-  for (const detail of [/Bouton\.tsx/, /148k \/ 200k/, /keywords 1 · classifier 1/, /^consulted$/]) expect(await ui.find({ type: 'Text', text: detail })).toBe(undefined)
+  for (const detail of [/keywords 1 · classifier 1/, /^consulted$/, /^agents \[/]) expect(await ui.find({ type: 'Text', text: detail })).toBe(undefined)
   // `p` folds a list only the unfolded Projects card shows
   expect(await ui.find({ type: 'Button', key: 'fold' })).toBe(undefined)
   await ui.unmount()
@@ -818,10 +815,10 @@ test('cards follow importance, and the chain keeps its blocks and arrows narrow 
     await ui.unmount()
     return all
   }
-  // compact: what blocks or runs, the mod's errors, then what can call for an action, then what informs
+  // compact: the sections (what asks for you, what runs), then the model, what can call for an action, what informs
   const rows = await texts(50)
   const at = (re: RegExp) => rows.findIndex(t => re.test(t))
-  const compact = [/^Process /, /^Errors /, /^Context /, /^Projects /, /^Model /, /^7-day plan /].map(at)
+  const compact = [/^FOR YOU$/, /^RUNNING /, /^Model /, /^Context /, /^7-day plan /, /^Projects /, /^Errors /].map(at)
   expect(compact.every(i => i >= 0)).toBe(true)
   expect([...compact].sort((a, b) => a - b)).toEqual(compact)
   isExpanded = true
@@ -829,7 +826,7 @@ test('cards follow importance, and the chain keeps its blocks and arrows narrow 
   const arrows = (list: string[]) => list.filter(t => /^ +[▽▼▲] (advice|decides|delegates|results)$/.test(t)).map(t => t.trim())
   // under 84 columns the chain is one column, its five blocks linked by four arrows, in the slot the Model row held
   const narrow = await texts(50)
-  expect(titles(narrow)).toEqual(['Process', 'Errors', 'Context', 'Projects', 'Advisor', 'Model', 'Decisions', 'Scouts', 'Log', '7-day plan'])
+  expect(titles(narrow)).toEqual(['Advisor', 'Model', 'Decisions', 'Scouts', 'Log', 'Context', '7-day plan', 'Projects', 'Errors'])
   expect(arrows(narrow)).toEqual(['▽ advice', '▼ decides', '▼ delegates', '▲ results'])
   const between = (a: RegExp, b: RegExp, c: RegExp) => { const i = narrow.findIndex(t => a.test(t)); const j = narrow.findIndex(t => b.test(t)); const l = narrow.findIndex(t => c.test(t)); return i < j && j < l }
   expect(between(/^╭─ Advisor /, /▽ advice$/, /^╭─ Model /)).toBe(true)
@@ -838,7 +835,7 @@ test('cards follow importance, and the chain keeps its blocks and arrows narrow 
   expect(between(/^╭─ Scouts /, /▲ results$/, /^╭─ Log /)).toBe(true)
   // from 84 columns: advisor beside the main session, no arrow lines, the subagents pointer instead
   const wide = await texts(100)
-  expect(titles(wide)).toEqual(['Process', 'Errors', 'Context', 'Projects', 'Advisor', 'Model', 'Decisions', 'Scouts', 'Log', '7-day plan'])
+  expect(titles(wide)).toEqual(['Advisor', 'Model', 'Decisions', 'Scouts', 'Log', 'Context', '7-day plan', 'Projects', 'Errors'])
   expect(arrows(wide)).toEqual([])
   expect(wide.filter(t => /^ {2}↓ subagents$/.test(t)).length).toBe(1)
 })
@@ -860,9 +857,10 @@ test('a healthy pane uses the neutral text and the one accent only, compact and 
     isExpanded = unfolded
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     const colors = new Set((await ui.findAll({ type: 'Text' })).map(t => t.props.color))
-    expect([...colors].filter(c => c !== undefined && c !== 'suggestion')).toEqual([])
-    // the accent marks what is active, with its symbol: the scout running, the work in flight
-    expect((await ui.find({ type: 'Text', text: /^● working · 0m42$/ }))?.props.color).toBe('suggestion')
+    // the companion's own hex colours aside (it draws in its mood's tints, not in the theme's)
+    expect([...colors].filter(c => c !== undefined && c !== 'suggestion' && !String(c).startsWith('#'))).toEqual([])
+    // the accent marks what is active, with its symbol: the spinner of the work in flight
+    expect((await ui.find({ type: 'Text', text: /Claude is working$/ }))?.props.color).toBe('suggestion')
     await ui.unmount()
   }
 })
@@ -881,19 +879,21 @@ test('the activity reads working while a turn or an agent runs, done for a few s
   expect(elapsedLabel(5_400_000)).toBe('90m00')
   // the pane: the status line and the Process card say it, then it goes
   let now = LIVE
-  const base = { ...STATE, running: [], tasks: [], goal: null }
+  const base = { ...STATE, running: [], tasks: [], goal: null, collisions: [] }
   let state: Record<string, unknown> = { ...base, isExpanded: true, agents: [{ id: 'a1', label: 'Survey', type: 'general-purpose', ...agent }] }
   mockState(on, () => state, () => now)
   let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.findAll({ type: 'Text', text: /^● working · 2m14$/ })).length).toBe(2) // the status line and the Process card
+  expect((await ui.findAll({ type: 'Text', text: /^. Claude is working · 2m14$/ })).length).toBe(1) // the head
   await ui.unmount()
   state = { ...base, agents: [{ id: 'a1', label: 'Survey', type: 'general-purpose', ...ended }] }
   ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /^✓ done$/ }))?.text).toBe('✓ done')
+  expect((await ui.find({ type: 'Text', text: /^✓ Turn done · 3 s ago$/ }))?.text).toBe('✓ Turn done · 3 s ago')
+  expect((await ui.find({ type: 'Text', text: /^DONE {2}✓ general-purpose 2m11$/ }))?.props.color).toBe('success')
   await ui.unmount()
   now = LIVE + DONE_MS
   ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^✓ done$|working/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /Turn done|working/ })).toBe(undefined)
+  expect((await ui.find({ type: 'Text', text: /^done {2}✓ general-purpose/ }))?.props.dimColor).toBe(true) // then one grey line
   await ui.unmount()
 })
 
@@ -1013,4 +1013,170 @@ test('a half block takes the top pixel as colour and the bottom one as backgroun
   expect(spriteCells('work', 0)[0]?.[0]).toEqual({ char: ' ' })
   // each mood has its own tint: the body is not the same colour in work and in error
   expect(spriteCells('work', 0)[4]?.[8]?.color).not.toBe(spriteCells('error', 0)[4]?.[8]?.color)
+})
+
+/** A session that asks for you, runs, failed and just finished: every section at once. */
+const BUSY_ALL: Record<string, unknown> = {
+  ...STATE,
+  waiting: { kind: 'permission_prompt', message: 'Claude needs your permission to use Bash', at: LIVE - 38_000 },
+  handoff: { path: 'C:/home/handoffs/session-1.md', state: 'ready', askedAt: LIVE - 90_000, pending: '', turnStarted: false },
+  background: [{ id: 'b1', type: 'shell', label: 'npm run dev', firstSeen: LIVE - 720_000 }],
+  agents: [
+    { id: 'a1', label: 'Survey cache keeper', type: 'general-purpose', status: 'running', firstSeen: LIVE - 200_000 },
+    { id: 'a2', label: 'tsc and tests', type: 'verify', status: 'running', firstSeen: LIVE - 20_000, parentId: 'a1' },
+    { id: 'a3', label: 'review the diff', type: 'reviewer', status: 'running', firstSeen: LIVE - 700_000 },
+    { id: 'f1', label: 'lint pass', type: 'lint', status: 'failed', firstSeen: LIVE - 90_000, endedAt: LIVE - 60_000 },
+    { id: 'c1', label: 'map', type: 'Explore', status: 'completed', firstSeen: LIVE - 90_000, endedAt: LIVE - 49_000 },
+  ],
+  turnStartedAt: LIVE - 134_000,
+}
+
+test('the sections come by priority, FOR YOU first, then FAILED, RUNNING, then the cards, each only when it has something', async ($, on) => {
+  mockState(on, BUSY_ALL)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rows = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const at = (re: RegExp) => rows.findIndex(t => re.test(t))
+  const order = [/Something failed/, /^FOR YOU$/, /^FAILED$/, /^RUNNING /, /^─+$/, /^Model /, /^Errors /].map(at)
+  expect(order.every(i => i >= 0)).toBe(true)
+  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  await ui.unmount()
+})
+
+test('a calm session shows none of the sections', async ($, on) => {
+  mockState(on, { ...HEALTHY, agents: [], running: [] })
+  const calm = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const title of [/^FOR YOU$/, /^FAILED$/, /^RUNNING/, /^DONE|^done /]) expect(await calm.find({ type: 'Text', text: title })).toBe(undefined)
+  await calm.unmount()
+})
+
+test('DONE comes after RUNNING, and FOR YOU before both', async ($, on) => {
+  // a fresh turn end, agents still listed as running elsewhere: all three titles in one pane
+  mockState(on, { ...BUSY_ALL, waiting: null, collisions: [], turnStartedAt: 0, lastTurnEnd: LIVE - 3_000, agents: [(BUSY_ALL.agents as unknown[])[4]] })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rows = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const at = (re: RegExp) => rows.findIndex(t => re.test(t))
+  const order = [/^FOR YOU$/, /^RUNNING /, /^DONE {2}✓ Explore 0m41$/].map(at)
+  expect(order.every(i => i >= 0)).toBe(true)
+  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  await ui.unmount()
+})
+
+test('nothing of the old pane is lost: permission, collision, handoff, cold cache, stop, view, goal, keys', async ($, on) => {
+  const cold = { ...(STATE.cache as object), warm: false }
+  mockState(on, { ...BUSY_ALL, cache: cold, keepWarm: null })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const text = async (re: RegExp) => (await ui.find({ type: 'Text', text: re }))?.text
+  // FOR YOU: the permission with where to answer, the collision, the handoff with c, the cold cache with k
+  expect(await text(/Claude needs your permission to use Bash · asked 0m38/)).toBeDefined()
+  expect(await text(/^answer in chat$/)).toBeDefined()
+  expect(await text(/Bouton\.tsx also edited in "refonte hub mobile"/)).toBeDefined()
+  expect(await text(/^ready, written to handoffs\/session-1\.md$/)).toBeDefined()
+  expect(await text(/^c restart$/)).toBeDefined()
+  expect(await text(/next send rereads 148k tokens/)).toBeDefined()
+  expect(await text(/^k keep warm$/)).toBeDefined()
+  expect(await text(/74% full, \/clear or handoff/)).toBeUndefined() // a ready handoff already answers it
+  // FAILED: the failed agent with view
+  expect(await text(/^lint pass · agent failed · 1 min$/)).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'view-f1' }))?.props.label).toBe('view')
+  // RUNNING: paused on the permission, a tool, a stuck agent with view, a long background task with stop
+  expect(await text(/^RUNNING {2}paused on you$/)).toBeDefined()
+  expect(await text(/^npx vitest run$/)).toBeDefined()
+  expect(await text(/^review the diff · running 11m40, may be stuck$/)).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'view-a3' }))?.props.label).toBe('view')
+  expect(await text(/^npm run dev · in background 12 min$/)).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'stop-b1' }))?.props.label).toBe('stop')
+  // the goal with its pace, the keys
+  expect(await text(/^goal 2\/4 ▰/)).toMatch(/~/)
+  for (const key of ['expand', 'auto', 'keepwarm', 'continue', 'refresh']) expect(await ui.find({ type: 'Button', key })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a context nearly full asks for a handoff when none is ready', async ($, on) => {
+  mockState(on, { ...STATE, collisions: [] })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^74% full, \/clear or handoff$/ }))?.text).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^h handoff$/ }))?.text).toBe('h handoff')
+  await ui.unmount()
+})
+
+test('a subagent sits under the agent that spawned it, and one orphaned by a missing parent is a root of its own', async ($, on) => {
+  mockState(on, { ...BUSY_ALL, waiting: null, collisions: [], agents: [
+    { id: 'p', label: 'parent job', type: 'builder', status: 'running', firstSeen: LIVE - 60_000 },
+    { id: 'k', label: 'child job', type: 'verify', status: 'running', firstSeen: LIVE - 30_000, parentId: 'p' },
+    { id: 'o', label: 'orphan job', type: 'scout', status: 'running', firstSeen: LIVE - 30_000, parentId: 'gone' },
+  ] })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rows = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const at = (re: RegExp) => rows.findIndex(t => re.test(t))
+  expect(rows.filter(t => /└/.test(t)).length).toBe(1) // only the child carries the branch mark
+  expect(at(/^parent job$/)).toBeGreaterThanOrEqual(0)
+  expect(at(/^parent job$/)).toBeLessThan(at(/^child job$/))
+  expect(at(/^child job$/)).toBeLessThan(at(/^orphan job$/)) // the orphan comes after the first tree, not under it
+  await ui.unmount()
+})
+
+test('the head names the state, the routed model and why, and the cache; amber with its key when the cache ends soon', async ($, on) => {
+  mockState(on, { ...STATE, collisions: [], turnStartedAt: LIVE - 134_000, cache: { ...(STATE.cache as object), expiresAt: LIVE / 1000 + 200 }, keepWarm: null })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^Opus 5\.5 → Sonnet · auto$/ }))?.text).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^for “change la couleur du lien” · classifier$/ }))?.text).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^▲ cache cold in 3:20 {2}k keep warm$/ }))?.text).toBeDefined()
+  await ui.unmount()
+})
+
+test('a kept-warm cache reads warm in the head, with the keep-warm saying so', async ($, on) => {
+  mockState(on, { ...STATE, collisions: [] }) // the ping 10 min ago holds the cache 50 min more
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^cache warm 50:00 · keep-warm on$/ }))?.text).toBeDefined()
+  await ui.unmount()
+})
+
+test('the companion draws beside the head from 40 columns, and goes below, the text staying', async ($, on) => {
+  mockState(on, { ...STATE, collisions: [] })
+  const read = async (columns: number) => {
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
+    const halves = (await ui.findAll({ type: 'Text', text: /^[ ▀▄]*[▀▄][ ▀▄]*$/ })).length
+    const title = (await ui.find({ type: 'Text', text: /Claude is working|Resting|Waiting/ }))?.text
+    await ui.unmount()
+    return { halves, title }
+  }
+  expect((await read(64)).halves).toBeGreaterThan(9)
+  expect((await read(40)).halves).toBeGreaterThan(9)
+  const narrow = await read(39)
+  expect(narrow.halves).toBe(0)
+  expect(narrow.title).toBeDefined()
+})
+
+test('the band says in amber that the session waits for you, in place of the agents', async ($, on) => {
+  mockState(on, { ...STATE, waiting: BUSY_ALL.waiting })
+  const band = await $.ui.mount({
+    plugin: 'compagnon', component: 'AbovePrompt', surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
+  } as never)
+  const line = /^Opus 5\.5 · advisor 2 · \$0\.29 · ▲ ctx 74% · \? waiting for you$/
+  expect((await band.find({ type: 'Text', text: line }))?.text).toMatch(line)
+  expect((await band.find({ type: 'Text', text: /^ · \? waiting for you$/ }))?.props.color).toBe('warning')
+  expect(await band.find({ type: 'Text', text: /agents 2/ })).toBe(undefined)
+  await band.unmount()
+})
+
+test('each mood is read from the real state, in the head', async ($, on) => {
+  let state: Record<string, unknown> = {}
+  let now = LIVE
+  mockState(on, () => state, () => now)
+  const head = async (next: Record<string, unknown>, at = LIVE) => {
+    state = next
+    now = at
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const title = (await ui.find({ type: 'Text', text: /Claude is working|Waiting for you|Turn done|Something failed|Resting/ }))?.text
+    await ui.unmount()
+    return title
+  }
+  const calm = { ...STATE, collisions: [], running: [], agents: [], tasks: [], goal: null }
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000 })).toMatch(/Claude is working · 0m05/)
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting })).toMatch(/Waiting for you · 0m38/)
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisions: STATE.collisions })).toMatch(/Waiting for you/) // a collision waits for you too
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: BUSY_ALL.agents })).toMatch(/Something failed/)
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000 })).toMatch(/Turn done · 4 s ago/)
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000 }, LIVE + DONE_MS)).toMatch(/Resting · idle 24 s/)
 })

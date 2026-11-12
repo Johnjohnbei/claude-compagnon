@@ -25,6 +25,10 @@ export const TONE: Record<Tone, { mark: string; color?: string }> = {
 const RANK: Tone[] = ['error', 'alert', 'warn', 'active', 'done', 'ok']
 export const strongest = (...tones: Tone[]): Tone => RANK.find(t => tones.includes(t)) ?? 'ok'
 
+/** The braille spinner: one frame per refresh of the animation. */
+const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+export const spin = (frame: number): string => SPIN[((frame % SPIN.length) + SPIN.length) % SPIN.length] ?? '⠋'
+
 const GAUGE = 10
 /** The compact row's title column: the longest title ("7-day plan") and one space. */
 const TITLE_COL = 11

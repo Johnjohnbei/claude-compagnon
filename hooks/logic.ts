@@ -4,6 +4,8 @@ import type { CacheInfo, CacheVerdict, Collision, ErrorEntry, Ledger, Level, Log
 
 /** The cache is per model: below this, dropping to a cheaper model still pays. */
 export const CACHE_KEEP_TOKENS = 40_000
+/** A cache this close to its end is called out (and offers keep-warm) when a send would reread much. */
+export const COLD_SOON_MS = 300_000
 
 /**
  * Whether switching the main model now forfeits nothing. A prompt cache belongs to one model and cannot be copied

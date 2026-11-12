@@ -7,7 +7,7 @@ import type { AgentRow, CacheInfo, CacheVerdict, ErrorEntry, LogKind, SeenModels
 import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
 import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
 import { contextParts } from './load-report'
-import { cacheFromRelay, cacheState, costDelta, dayKey, errorText, isFinished, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples } from './logic'
+import { activityOf, cacheFromRelay, cacheState, costDelta, dayKey, errorText, hasFreshError, isFinished, moodOf, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples, type Mood } from './logic'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -26,8 +26,13 @@ const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
 const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
+const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
+const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
+const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
 
 const TICK_MS = 15_000
+/** The companion's frame period while it moves: about two redraws a second (the engine allows ten). */
+export const FRAME_MS = 450
 
 type $ = EngineInterface
 
@@ -54,6 +59,12 @@ export function recordError($: $, err: unknown, where = ''): Promise<void> {
 export async function errorsNow($: $): Promise<ErrorEntry[]> {
   const [list, session] = await Promise.all([$.store.get('errorLog'), $.session.id()])
   return sessionErrors((list ?? []) as ErrorEntry[], session)
+}
+
+/** The companion's mood now, from the same state the pane reads. */
+export async function moodNow($: $): Promise<Mood> {
+  const [now, ag, w, clash, started, ended, errors] = await Promise.all([$.clock.now(), read($, agents), read($, waiting), read($, collisions), read($, turnStartedAt), read($, lastTurnEnd), errorsNow($)])
+  return moodOf({ isFailed: ag.some((a: { status: string }) => a.status === 'failed') || hasFreshError(errors, started, now), isWaiting: Boolean(w) || clash.length > 0, activity: activityOf(started, ended, ag, now) })
 }
 
 /**
@@ -131,11 +142,12 @@ export async function refreshAgents($: $) {
   const now = await $.clock.now()
   const list = await $.agent.list()
   await update($, agents, (was: AgentRow[]) =>
-    list.map((a: { id: string; description: string; type: string; status: string }) => ({
+    list.map((a: { id: string; description: string; type: string; status: string; parentId?: string }) => ({
       id: a.id,
       label: a.description,
       type: a.type,
       status: a.status,
+      parentId: a.parentId,
       firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
       // The moment it was first seen finished: the card shows how long it ran.
       endedAt: isFinished(a.status) ? (was.find(w => w.id === a.id)?.endedAt ?? now) : undefined,

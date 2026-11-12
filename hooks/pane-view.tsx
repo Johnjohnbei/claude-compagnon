@@ -4,12 +4,14 @@ import type { EngineInterface } from 'claude-code'
 
 import type { RouteRecord } from '../types'
 import type { El } from './card-frame'
-import { Band, ContextCard, ErrorsCard, KeysLine, PlanCard, ProcessCard, ProjectsCard } from './cards'
+import { Band, ContextCard, ErrorsCard, KeysLine, PlanCard, ProjectsCard } from './cards'
 import { Schema } from './chain-schema'
 import { askHandoff, continueFromHandoff, setKeepWarm } from './guards'
+import { Head } from './pane-head'
+import { Done, Failed, ForYou, Running, type Work } from './pane-sections'
 import { TIER_NAME, modelLabel } from './tiers'
-import { activeAgents, activityOf, ttlMs, type DailySamples } from './logic'
-import { errorsNow, quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
+import { activeAgents, activityOf, hasFreshError, ttlMs, type DailySamples } from './logic'
+import { FRAME_MS, errorsNow, moodNow, quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -49,14 +51,17 @@ export async function restorePaneMode($: $) {
 /** The band above the prompt: one line, the figures that say whether to open the pane. */
 export async function renderBand($: $, E: El) {
   await read($, tick)
-  const [u, p, adv, turnCosts, ag] = await Promise.all([read($, usage), read($, pin), read($, advisor), read($, costs), read($, agents)])
+  const [u, p, adv, turnCosts, ag, w] = await Promise.all([read($, usage), read($, pin), read($, advisor), read($, costs), read($, agents), read($, waiting)])
   const label = p ? TIER_NAME[p.tier] : u ? modelLabel(u.model) : 'compagnon'
   const total = turnCosts.reduce((s: number, t: { usd: number }) => s + t.usd, 0)
-  return Band(E, label, adv, total, u ? u.contextPct : null, activeAgents(ag).length, (await errorsNow($)).length)
+  return Band(E, label, adv, total, u ? u.contextPct : null, activeAgents(ag).length, (await errorsNow($)).length, Boolean(w))
 }
 
-/** The pane, `columns` wide: the cards by importance, the chain in the Model slot, the keys; compact until `e`. `refreshRepos` is the `r` key. */
-export async function renderPane($: $, E: El, columns: number, refreshRepos: () => void) {
+/**
+ * The pane, `columns` wide: the head (companion, state, model, goal, cache), the sections by priority (FOR YOU, FAILED, RUNNING,
+ * DONE), the cards (the chain in the Model slot), the keys; compact until `e`. `refreshRepos` is the `r` key.
+ */
+export async function renderPane($: $, E: El, columns: number, isCompanionShown: boolean, refreshRepos: () => void) {
   await read($, tick)
   const now = await $.clock.now()
   const [u, d, p, c, run, bg, ag, w, rp] = await Promise.all([
@@ -71,6 +76,7 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const routes = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
   const errors = await errorsNow($)
   const [started, ended, isOpenAll] = await Promise.all([read($, turnStartedAt), read($, lastTurnEnd), read($, isExpanded)])
+  const mood = await moodNow($)
   const activity = activityOf(started, ended, ag, now)
   const mode = { isCompact: !isOpenAll }
   const width = Math.min(64, columns)
@@ -79,16 +85,26 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const expiry = Math.max(c?.expiresAt ? c.expiresAt * 1000 : 0, warmUntilOf(kw, c))
   const warmLeft = expiry > 0 ? expiry - now : null
   const isKeepWarm = Boolean(kw && !kw.stopped)
-  const { Box } = E
+  const frame = Math.floor(now / FRAME_MS) // the frame follows the clock: a redraw is enough to move it, nothing is written
+  const work: Work = { now, frame, width, running: run, tasks: bg, agents: ag, waiting: w, clash, ho, usage: u, verdict, warmLeft, isKeepWarm, errors, isFreshError: hasFreshError(errors, started, now), activity }
+  const actions = { onStop: (id: string) => void stopTask($, id), onView: (id: string) => $.ui.view({ agentId: id }) }
+  const { Box, Text } = E
   return (
     <Box flexDirection="column">
-      {/* By importance: what blocks or runs, then what can call for an action, then what informs. */}
-      {ProcessCard(E, width, now, { running: run, tasks: bg, agents: ag, waiting: w, goal: g, taskList, activity }, id => void stopTask($, id), id => $.ui.view({ agentId: id }), mode)}
-      {ErrorsCard(E, width, errors, mode)}
+      {Head(E, { width, columns, isSpriteShown: isCompanionShown, mood, frame, now, activity, waitAt: w?.at ?? clash[0]?.at ?? null, lastTurnEnd: ended, usage: u, pin: p, decision: d, routes, isAuto, goal: g, taskList, verdict, warmLeft, kw })}
+      <Text> </Text>
+      {/* By priority: what asks for you, what failed, what runs, what just ended; then the cards, each a grey row unless it needs a look. */}
+      {ForYou(E, work)}
+      {Failed(E, work, actions)}
+      {Running(E, work, actions)}
+      {Done(E, work)}
+      <Text dimColor>{'─'.repeat(width)}</Text>
+      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, isExpanded: Boolean(isOpenAll), now })}
       {ContextCard(E, width, u, ho, mode)}
-      {ProjectsCard(E, width, rp, used, clash, now, isOpen, mode)}
-      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, activity, isExpanded: Boolean(isOpenAll), now })}
       {PlanCard(E, width, u, samples, now, mode)}
+      {ProjectsCard(E, width, rp, used, clash, now, isOpen, mode)}
+      {ErrorsCard(E, width, errors, mode)}
+      <Text> </Text>
       {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen, isExpanded: Boolean(isOpenAll) }, {
         expand: () => void quietly($, async () => {
           await update($, isExpanded, () => !isOpenAll)

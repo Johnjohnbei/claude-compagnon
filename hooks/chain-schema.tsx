@@ -2,23 +2,26 @@
 // Folded by default to the Model row and the status line, the same figures; `e` unfolds it.
 import type { RenderChildren } from 'claude-code'
 
-import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, TurnCost, Usage } from '../types'
+import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, Tier, TurnCost, Usage } from '../types'
 import { ACCENT, Card, TONE, gauge, k, plural, usd, type CardMode, type El, type Tone } from './card-frame'
 import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
 import { SOURCE_NAME } from './request-routing'
-import { activeAgents, ageLabel, clockLabel, costSummary, isFinished, type Activity } from './logic'
-import { ActivityText } from './cards'
+import { activeAgents, ageLabel, clockLabel, costSummary, isFinished } from './logic'
 
 const hhmm = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 const DAY = 86_400_000
 const PART_NAME: Record<string, string> = { 'System prompt': 'prompt', 'System tools': 'tools', 'MCP server instructions': 'MCP', 'Custom agents': 'agents', Skills: 'skills', Messages: 'messages', 'Memory files': 'memory' }
 const KIND_NAME: Record<LogKind, string> = { route: 'route', advisor: 'advisor', spawn: 'agent', release: 'model' }
 
+/** The model the main loop runs on: the pin, else the session's own. The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone. */
+export function shownModel(usage: Usage | null, pin: Pin | null): { current: Tier; shown: string } {
+  const current = pin ? pin.tier : tierOf(usage?.model ?? '')
+  return { current, shown: usage && tierOf(usage.model) === current ? modelLabel(usage.model) : TIER_NAME[current] }
+}
+
 export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[], mode: CardMode) {
   const { Text } = E
-  const current = pin ? pin.tier : tierOf(usage?.model ?? '')
-  // The version comes from the id the engine reports, and only while it names the tier shown: otherwise the tier alone.
-  const shown = usage && tierOf(usage.model) === current ? modelLabel(usage.model) : TIER_NAME[current]
+  const { shown } = shownModel(usage, pin)
   const level: Level = verdict.isCold || kw?.stopped ? 'warn' : 'ok'
   const cacheLine = verdict.isCold ? (
     <Text color={TONE.warn.color} wrap="truncate-end">▲ cold cache · rereads {k(verdict.recache)}</Text>
@@ -40,7 +43,7 @@ export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision
       : d && d.action !== 'keep'
         ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'switched to' : 'handed to'} {TIER_NAME[d.tier]}</Text>
         : null
-  return Card(E, width, 'Model', shown, level, [cacheLine, detail, ...extra], { ...mode, note: verdict.isCold ? 'cold cache' : kw?.stopped ? 'keep-warm stopped' : null })
+  return Card(E, width, 'Model', shown, level, [cacheLine, detail, ...extra], mode)
 }
 
 /** The last things the mod decided or saw, newest last. */
@@ -122,20 +125,10 @@ function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: str
   return <Text dimColor wrap="truncate-end">{' '.repeat(Math.floor(width / 2))}{arrow} {label}</Text>
 }
 
-/**
- * The status line, the chain folded to one line: the activity while there is some, what is running, the advisor's calls,
- * the decisions, the cost. The mod's own errors moved to the Errors row.
- */
-export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[], activity: Activity, now: number) {
+/** The status line, the chain folded to one line: the agents running, the advisor's calls, the decisions, the cost. What runs now is in the head and the sections above. */
+export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[]) {
   const { Text } = E
-  const live = activeAgents(agents).length
-  const busy = ActivityText(E, activity, now)
-  return (
-    <Text wrap="truncate-end">
-      {busy}
-      <Text dimColor>{busy ? ' · ' : ''}agents [{live} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
-    </Text>
-  )
+  return <Text dimColor wrap="truncate-end">agents [{activeAgents(agents).length} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
 }
 
 export type SchemaInput = {
@@ -143,7 +136,7 @@ export type SchemaInput = {
   usage: Usage | null; decision: Decision | null; pin: Pin | null; cache: CacheInfo | null; verdict: CacheVerdict
   keepWarm: KeepWarm | null; warmLeft: number | null; ttl: number; isAuto: boolean
   advisor: AdvisorStat; turns: TurnCost[]; seen: SeenModels; parts: CtxPart[]
-  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; activity: Activity; isExpanded: boolean; now: number
+  routes: RouteRecord[]; agents: AgentRow[]; journal: LogEntry[]; isExpanded: boolean; now: number
 }
 
 /** The chain at a glance: advisor beside the main session, the decision layer under it, the scouts, the journal, the status line. */
@@ -166,15 +159,13 @@ export function Schema(E: El, s: SchemaInput) {
     fixed.length > 0 ? <Text wrap="truncate-end"><Text dimColor>load </Text>{k(fixed.reduce((n, p) => n + p.tokens, 0))}<Text dimColor>{messages ? ` · conversation ${k(messages.tokens)}` : ''}</Text></Text> : null,
     fixed.length > 0 ? <Text dimColor wrap="truncate-end">{[...fixed].slice(0, 3).map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text> : null,
   ]
-  const footer = StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns, s.activity, s.now)
-  // Folded: the Model row and the status line, the same figures the unfolded chain shows.
-  if (!s.isExpanded)
-    return (
-      <Box flexDirection="column">
-        {ModelCard(E, Math.min(64, s.width), s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, [], { isCompact: true })}
-        {footer}
-      </Box>
-    )
+  const footer = StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns)
+  // Folded: the Model row alone, the figures of the status line in its note.
+  if (!s.isExpanded) {
+    const cost = costSummary(s.turns).totalUsd
+    const note = [s.verdict.isCold ? 'cold cache' : s.keepWarm?.stopped ? 'keep-warm stopped' : null, s.isAuto ? 'auto' : 'auto off', s.routes.length > 0 ? plural(s.routes.length, 'decision', 'decisions') : null, s.advisor.calls > 0 ? `advisor ${plural(s.advisor.calls, 'call', 'calls')}` : null, cost > 0 ? usd(cost) : null].filter(Boolean).join(' · ')
+    return ModelCard(E, Math.min(64, s.width), s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, [], { isCompact: true, note })
+  }
   const open: CardMode = {}
   const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra, open)
   const advisor = AdvisorCard(E, isWide ? leftW : total, s.advisor, s.turns, s.now, open)

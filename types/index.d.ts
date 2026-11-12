@@ -51,7 +51,8 @@ export type SeenModels = Partial<Record<Tier, string>>
 export type RunningTool = { id: string; tool: string; label: string; start: number }
 
 export type BackgroundTask = { id: string; type: string; label: string; firstSeen: number }
-export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number }
+/** `parentId`: the agent whose loop spawned it (`$.agent.list()`), absent when the main loop did. */
+export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number; parentId?: string }
 export type Waiting = { kind: string; message: string; at: number }
 
 export type Usage = {

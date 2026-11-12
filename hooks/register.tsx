@@ -324,5 +324,5 @@ export const register: Register = (on, options) => {
     return undefined // own failure: no band, never a broken prompt area
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, () => void refreshRepos($)))
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, true, () => void refreshRepos($)))
 }
