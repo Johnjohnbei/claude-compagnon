@@ -25,10 +25,10 @@ The companion has five moods. The mood is read from the real state, by priority:
 
 | Mood | When | Tint |
 | --- | --- | --- |
-| Failed | A failed agent or an error of the mod during this turn (or in the last 2 minutes when no turn runs), or a turn that ended in an API error or a refusal. A failure older than that stays listed in `FAILED` but the face follows the rest | red |
+| Failed | A failed agent or an error of the mod during this turn (or in the last 2 minutes when no turn runs), or a turn that ended in an API error or a refusal; the main turn's own ending holds for its 2 minutes whatever the agents do after it. A failure older than that stays listed in `FAILED` but the face follows the rest | red |
 | Needs you | A permission prompt is waiting, or a collision question is open (counted from the question, not from the other session's edit). An idle notice is rest, and a collision you answered `Proceed` to waits for no one | amber, the artichoke raises a leaf |
-| Works | A turn or an agent is running (a teammate that is idle or pending is not) | blue, it bobs and glances aside |
-| Done | A turn ended in an answer less than 20 s ago. An interrupted turn reads `Interrupted` for 20 s, then rests | green |
+| Works | A turn or an agent is running, counted from when its current run began (a teammate that is idle or pending is not working, and one running for over 10 minutes with no change is treated as possibly stuck and keeps nothing alive) | blue, it bobs and glances aside |
+| Done | A turn ended in an answer, or an agent ended, less than 20 s ago. An interrupted turn reads `Interrupted` for 20 s, then rests | green |
 | Resting | None of the above | grey |
 
 It needs a terminal with 24-bit colour. It is hidden when the pane is narrower than 40 columns (the head's text stays), and the `showCompanion` option turns it off.
@@ -42,7 +42,7 @@ Each section is drawn only when it is not empty.
 | `FOR YOU` | amber | A permission prompt (answer it in the chat; it clears when the turn ends), a collision with another session, a handoff ready (`c restart`), a cache that is cold or about to be, with `k keep warm`, a context nearly full (`h handoff`) |
 | `FAILED` | red | Agents that failed (`view` opens them), the mod's own error of this turn (`/compagnon errors` lists them) |
 | `RUNNING` | blue | The running tool and its time, agents with a moving bar and their time (a subagent sits under the agent that spawned it), background tasks (`stop`). Past 2 minutes for a tool, 10 minutes for an agent or a task, a line turns amber with `▲`; an agent waiting or stuck offers `view`. While a permission is waiting, it reads `paused on you` |
-| `DONE` | green, then grey | The agents that finished, green for 20 s after the turn, then one grey line |
+| `DONE` | green, then grey | The agents that finished, green for 20 s after the turn, then one grey line; teammates that are idle or pending sit on a dim `idle` line of their own |
 
 The API gives no progress for an agent: the bar sweeps back and forth to say it is alive, and the time stands in for a percentage.
 
@@ -277,7 +277,7 @@ That is why the guards exist. Routing switches the model only when the cache is 
 
 - The pane redraws about twice a second while something is in flight or a permission waits, and not at all at rest.
 - Narrow panes (under 44 columns) keep each section row on one line: the name column and the key hints give way, the `view` and `stop` buttons stay.
-- The companion needs 24-bit colour, and the mod cannot tell whether the terminal has it: the engine's types expose no colour depth, `NO_COLOR` or theme capability (a search of `.claude-plugin/types/claude-code/index.d.ts` for `colorDepth`, `colorLevel`, `supportsColor`, `NO_COLOR`, `COLORTERM` and `truecolor` finds none). On a terminal without it the faces stay distinguishable by shape (a raised leaf waits, glancing eyes work, a closed smile is done, a wavy mouth fails, half-closed eyes rest), and `showCompanion` turns the drawing off.
+- The companion is drawn in 24-bit colour and the engine exposes no colour-depth signal (a search of `.claude-plugin/types/claude-code/index.d.ts` for `colorDepth`, `colorLevel` and `supportsColor` finds none). The mod therefore reads the one signal there is, `NO_COLOR` through `$.env.get`: set and not empty, the drawing is left out at session start and the head's text stays ([no-color.org](https://no-color.org)). It does not gate on `COLORTERM`, which a truecolor terminal such as Windows Terminal may leave unset. On a terminal without colour that sets nothing, the faces stay distinguishable by shape (a raised leaf waits, glancing eyes work, a smile is done, a wavy mouth fails, flat eyes rest), and `showCompanion` turns the drawing off.
 - Keyword routing is approximate. The classifier covers what keywords miss; without it (option off, 3 s timeout, failure), the request stays on Opus.
 - The plan is published in percentages only. The 7-day curve counts only days when a session ran.
 - The collision guard only sees sessions where the mod runs.
