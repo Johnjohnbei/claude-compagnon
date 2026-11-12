@@ -109,6 +109,12 @@ export const handoffPrompt = (path: string): string =>
 export const continuationPrompt = (path: string, pending: string): string =>
   `Resuming after a handoff: read ${path} in full, then carry on with the work where it stopped.${pending ? `\n\nPending message: ${pending}` : ''}`
 
+/** An agent loop that ended (AgentStatus: completed, failed or killed). Anything else (pending, running, waiting, idle) is active. */
+const FINISHED_AGENT = new Set(['completed', 'failed', 'killed'])
+export const isFinished = (status: string): boolean => FINISHED_AGENT.has(status)
+/** The agents the band and the status line count as active: one rule for both. */
+export const activeAgents = <A extends { status: string }>(list: A[]): A[] => list.filter(a => !isFinished(a.status))
+
 /** Usage thresholds used by ccusage and most status lines: green under 70 %, red from 90 %. */
 export const levelOf = (pct: number): Level => (pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok')
 

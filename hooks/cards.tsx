@@ -3,7 +3,7 @@
 // line under the cards, not inside them.
 import type { AdvisorStat, AgentRow, BackgroundTask, Collision, Goal, Handoff, Level, ParallelSummary, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
 import { COLOR, Card, gauge, k, usd, type El } from './card-frame'
-import { ageLabel, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, type DailySamples } from './logic'
+import { activeAgents, ageLabel, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, type DailySamples } from './logic'
 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
 const TOOL_LONG = 120_000
@@ -69,11 +69,13 @@ export function GoalCard(E: El, width: number, g: Goal | null, list: TaskRow[], 
 
 export function ProcessCard(E: El, width: number, now: number, running: RunningTool[], tasks: BackgroundTask[], agents: AgentRow[], waiting: Waiting | null, onStop: (id: string) => void, onView: (id: string) => void) {
   const { Box, Text, Button } = E
-  const live = agents.filter(a => a.status !== 'completed' && a.status !== 'killed')
+  // A failed agent is ended, not running: it raises the card and keeps its line, but is no longer counted as running.
+  const live = activeAgents(agents)
+  const failed = agents.filter(a => a.status === 'failed')
   const longTools = running.filter(t => now - t.start > TOOL_LONG)
   const oldTasks = tasks.filter(t => now - t.firstSeen > TASK_LONG)
-  const stuck = live.filter(a => a.status === 'failed' || a.status === 'waiting' || now - a.firstSeen > TASK_LONG)
-  const level: Level = waiting || live.some(a => a.status === 'failed') ? 'alert' : longTools.length + oldTasks.length + stuck.length > 0 ? 'warn' : 'ok'
+  const stuck = [...failed, ...live.filter(a => a.status === 'waiting' || now - a.firstSeen > TASK_LONG)]
+  const level: Level = waiting || failed.length > 0 ? 'alert' : longTools.length + oldTasks.length + stuck.length > 0 ? 'warn' : 'ok'
   const busy = running.length + tasks.length + live.length
   const others = [live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, tasks.length && `${tasks.length} in background`].filter(Boolean).join(' · ')
   const summary = running[0] ? `${running[0].tool} ${ageLabel(now - running[0].start)}${others ? ` · ${others}` : ''}` : others || 'nothing running'

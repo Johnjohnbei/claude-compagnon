@@ -7,7 +7,7 @@ import type { AgentRow, CacheInfo, CacheVerdict, ErrorEntry, LogKind, SeenModels
 import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
 import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
 import { contextParts } from './load-report'
-import { cacheFromRelay, cacheState, costDelta, dayKey, errorText, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples } from './logic'
+import { cacheFromRelay, cacheState, costDelta, dayKey, errorText, isFinished, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples } from './logic'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -138,7 +138,7 @@ export async function refreshAgents($: $) {
       status: a.status,
       firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
       // The moment it was first seen finished: the card shows how long it ran.
-      endedAt: ['completed', 'failed', 'killed'].includes(a.status) ? (was.find(w => w.id === a.id)?.endedAt ?? now) : undefined,
+      endedAt: isFinished(a.status) ? (was.find(w => w.id === a.id)?.endedAt ?? now) : undefined,
     })),
   )
 }

@@ -6,7 +6,7 @@ import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision,
 import { COLOR, Card, gauge, k, plural, usd, type El } from './card-frame'
 import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
 import { SOURCE_NAME } from './request-routing'
-import { ageLabel, costSummary, errorSummary } from './logic'
+import { activeAgents, ageLabel, costSummary, errorSummary, isFinished } from './logic'
 
 /** One colour per role in the chain, as in the reference video: lead, advisor, decisions, agents (ANSI names: a theme cannot hide them). */
 const ROLE = { lead: 'yellow', advisor: 'magenta', decision: 'green', agents: 'blue' } as const
@@ -60,13 +60,12 @@ const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms
 const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'keeps the model', switch: 'switches to this tier', delegate: 'hands to a subagent' }
 /** The named scouts of ~/.claude/agents, and what each is for. */
 const SCOUTS: Array<[string, string, string]> = [['search', 'maps the repository', 'map'], ['grep', 'call sites', 'calls'], ['audit', 'diff review, worktree', 'review']]
-const FINISHED = ['completed', 'failed', 'killed']
 
 /** One scout's state: running (and for how long), finished (and how long it ran), failed, or idle. The API gives no progress: no percentage. */
 function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; level: Level; isRunning: boolean; isIdle: boolean } {
   const last = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)[0]
   if (!last) return { mark: '·', time: 'idle', level: 'ok', isRunning: false, isIdle: true }
-  if (!FINISHED.includes(last.status)) return { mark: '●', time: clock(now - last.firstSeen), level: 'ok', isRunning: true, isIdle: false }
+  if (!isFinished(last.status)) return { mark: '●', time: clock(now - last.firstSeen), level: 'ok', isRunning: true, isIdle: false }
   const time = clock((last.endedAt ?? now) - last.firstSeen)
   return last.status === 'completed' ? { mark: '✓', time, level: 'ok', isRunning: false, isIdle: false } : { mark: '✕', time, level: 'warn', isRunning: false, isIdle: false }
 }
@@ -108,7 +107,7 @@ const SCOUT_MIN = 13
 /** The scouts (search, grep, audit), three small cards side by side, one under the other when the pane cannot hold three. Other agents are counted. */
 export function SwarmCards(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean) {
   const { Box, Text } = E
-  const others = agents.filter(a => !SCOUTS.some(([name]) => name === a.type) && !FINISHED.includes(a.status)).length
+  const others = activeAgents(agents).filter(a => !SCOUTS.some(([name]) => name === a.type)).length
   const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'other agent', 'other agents')} running</Text> : null
   const each = Math.floor((width - (SCOUTS.length - 1)) / SCOUTS.length)
   const isRow = each >= SCOUT_MIN
@@ -138,7 +137,7 @@ function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: str
 /** The bottom line: what is running, the advisor's calls, the decisions, the cost, and the mod's own errors when there are any. */
 export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[], errors: ErrorEntry[] = []) {
   const { Text } = E
-  const live = agents.filter(a => !FINISHED.includes(a.status)).length
+  const live = activeAgents(agents).length
   const failed = errorSummary(errors)
   return (
     <Text wrap="truncate-end">

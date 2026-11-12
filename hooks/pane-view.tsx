@@ -2,13 +2,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { AgentRow, RouteRecord } from '../types'
+import type { RouteRecord } from '../types'
 import type { El } from './card-frame'
 import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard } from './cards'
 import { Schema } from './chain-schema'
 import { askHandoff, continueFromHandoff, setKeepWarm } from './guards'
 import { TIER_NAME, modelLabel } from './tiers'
-import { ttlMs, type DailySamples } from './logic'
+import { activeAgents, ttlMs, type DailySamples } from './logic'
 import { errorsNow, quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
@@ -44,8 +44,7 @@ export async function renderBand($: $, E: El) {
   const [u, p, adv, turnCosts, ag] = await Promise.all([read($, usage), read($, pin), read($, advisor), read($, costs), read($, agents)])
   const label = p ? TIER_NAME[p.tier] : u ? modelLabel(u.model) : 'compagnon'
   const total = turnCosts.reduce((s: number, t: { usd: number }) => s + t.usd, 0)
-  const live = ag.filter((a: AgentRow) => a.status !== 'completed' && a.status !== 'killed').length
-  return Band(E, label, adv, total, u ? u.contextPct : null, live, (await errorsNow($)).length)
+  return Band(E, label, adv, total, u ? u.contextPct : null, activeAgents(ag).length, (await errorsNow($)).length)
 }
 
 /** The pane, `columns` wide: the chain, the cards, the keys. `refreshRepos` is the `r` key. */

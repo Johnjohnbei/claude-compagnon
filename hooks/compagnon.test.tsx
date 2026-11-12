@@ -4,7 +4,7 @@ import type { CacheInfo, ErrorEntry, Ledger, LogEntry } from '../types'
 import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLabel, releaseOf, versionOf } from './tiers'
 import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { chargeReport, contextParts } from './load-report'
-import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
+import { activeAgents, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -717,4 +717,37 @@ test('a failed refresh is recorded and shown on the status line, a good loop add
   const listed = (await $.command.run({ command: 'compagnon', args: 'errors' } as never)) as { text?: string }
   expect(listed.text?.split('\n')[0]).toBe('2 errors (last 20 kept, newest last):')
   expect(listed.text?.split('\n')[2]).toMatch(/^\d{2}\/\d{2}\/\d{4}, \d{2}:\d{2} {2}no implementation for agent\.list$/)
+})
+
+test('the band and the status line count the same active agents: an ended one (completed, failed, killed) is not active', async ($, on) => {
+  const statuses = ['running', 'waiting', 'idle', 'pending', 'completed', 'failed', 'killed']
+  const everyStatus = statuses.map((status, i) => ({ id: `a${i}`, label: `agent ${status}`, type: 'general-purpose', status, firstSeen: LIVE - 60_000 }))
+  expect(activeAgents(everyStatus).map(a => a.status)).toEqual(['running', 'waiting', 'idle', 'pending'])
+  for (const status of ['completed', 'failed', 'killed']) expect(isFinished(status)).toBe(true)
+  const state: Record<string, unknown> = { ...STATE, agents: everyStatus }
+  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  on('state.get', (_, e) => {
+    const key = (e as unknown as { key: string }).key
+    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
+    return { value: { value: { shape: 'v1', value: key in state ? state[key] : fallback }, version: 1 } }
+  })
+  on('store.get', () => ({ value: undefined }))
+  on('clock.now', () => ({ value: LIVE }))
+  on('session.id', () => ({ value: 'session-1' }))
+  const band = await $.ui.mount({
+    plugin: 'compagnon',
+    component: 'AbovePrompt',
+    surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
+  } as never)
+  const bandCount = (await band.find({ type: 'Text', text: /agents \d+$/ }))?.text.match(/agents (\d+)$/)?.[1]
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const lineCount = (await pane.find({ type: 'Text', text: /^agents \[\d+ active\]/ }))?.text.match(/^agents \[(\d+) active\]/)?.[1]
+  // the failed agent still raises the Process card, which counts 4 agents running, not 5
+  expect((await pane.find({ type: 'Text', text: /^╭─ Process ─+ ▲ \d+ running ─╮$/ }))?.text).toMatch(/▲ 5 running/) // 4 agents + the Bash call
+  expect((await pane.find({ type: 'Text', text: /agent failed · failed/ }))?.text).toMatch(/agent failed · failed/)
+  await pane.unmount()
+  expect(bandCount).toBe('4')
+  expect(lineCount).toBe(bandCount)
 })
