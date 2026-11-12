@@ -260,10 +260,10 @@ const STATE: Record<string, unknown> = {
   ],
   parallel: { total: 12, overlapped: 4, sequentialReads: 5, agents: 1 },
   repos: [
-    { dir: 'C:/Users/me/GitHub/arkanes', name: 'Arkanes', branch: 'main', ahead: 2, behind: 0, dirty: 17, hasUpstream: true },
-    { dir: 'C:/Users/me/GitHub/cv-builder', name: 'cv-builder', branch: 'main', ahead: 0, behind: 0, dirty: 0, hasUpstream: true },
+    { dir: 'C:/Users/me/GitHub/projet-c', name: 'projet-c', branch: 'main', ahead: 2, behind: 0, dirty: 17, hasUpstream: true },
+    { dir: 'C:/Users/me/GitHub/projet-d', name: 'projet-d', branch: 'main', ahead: 0, behind: 0, dirty: 0, hasUpstream: true },
   ],
-  usedRepos: ['C:/Users/me/GitHub/arkanes'],
+  usedRepos: ['C:/Users/me/GitHub/projet-c'],
   collisions: [{ file: 'ArkButton.tsx', who: 'refonte hub mobile', at: LIVE - 420_000 }],
   goal: { condition: 'les 18 warnings exhaustive-deps corrigés, gates verts', startedAt: LIVE - 1_800_000 },
   seen: { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' },
@@ -479,13 +479,13 @@ test('the classifier raises the weak edit rule, never lowers it, and answers wha
 test('the load report points at the heavy sources only', async () => {
   const heavy = chargeReport({
     categories: [{ name: 'Memory files', tokens: 20000, kind: 'used' }],
-    memoryFiles: [{ path: '/work/coeurdar/CLAUDE.md', type: 'Project', tokens: 17000 }, { path: '/work/coeurdar/RTK.md', type: 'Project', tokens: 151 }],
+    memoryFiles: [{ path: '/work/projet-e/CLAUDE.md', type: 'Project', tokens: 17000 }, { path: '/work/projet-e/RTK.md', type: 'Project', tokens: 151 }],
     skills: { totalSkills: 2, tokens: 2000, skillFrontmatter: [{ name: 'a:x', source: 'plugin', pluginName: 'marketing', tokens: 1800 }, { name: 'b', source: 'userSettings', tokens: 200 }] },
     agents: [{ agentType: 'brand-voice:z', source: 'plugin', tokens: 1900 }],
     mcpTools: [{ server: 'supabase', tokens: 2500 }],
   })
   expect(heavy).toContain('Pistes :')
-  expect(heavy).toContain('coeurdar/CLAUDE.md pèse 17,0 k')
+  expect(heavy).toContain('projet-e/CLAUDE.md pèse 17,0 k')
   expect(heavy).toContain('Plugin marketing : 1,8 k de skills')
   expect(heavy).toContain('Agents de plugins : 1,9 k')
   expect(heavy).toContain('Serveur MCP supabase : 2,5 k')

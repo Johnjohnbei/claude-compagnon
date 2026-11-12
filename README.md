@@ -1,5 +1,9 @@
 # compagnon
 
+<p align="left"><img src="assets/coeurdar-logo.png" alt="Logo Coeurdar" height="48"></p>
+
+Créé par [Coeurdar](https://coeurdar.com), projet de formation et de conseil en IA. Code open source sous licence MIT.
+
 Mod Claude Code : un panneau latéral qui s'ouvre avec chaque session et surveille le travail en cours.
 Une card bordée par sujet : le titre et la valeur clé dans la bordure du haut, une ou deux lignes dedans (jauge courte, chiffre, détail). La bordure reste discrète quand tout va bien et passe en orange ou en rouge quand une card demande un coup d'œil. Les touches tiennent sur une ligne de légende sous les cards.
 
@@ -67,6 +71,15 @@ Trois mods de [inematds/5-mods](https://github.com/inematds/5-mods) (MIT) ont in
 - **Collision** (Collision Guard) : chaque session tient la liste des fichiers qu'elle a modifiés dans `~/.claude/mods-data/compagnon/edits/<session>.json`. Avant une modification, si une autre session ouverte a touché le même fichier depuis moins de 30 min, le mod demande : continuer, passer en worktree (fichier suivi par git seulement) ou annuler. Le refus est expliqué à Claude.
 - **Handoff** (Cache Keeper) : Claude écrit l'état de la session dans `~/.claude/mods-data/compagnon/handoffs/`, puis `c` lance `/clear` et donne ce fichier comme premier message de la session neuve.
 - **Objectif** (Goal Meter) : la card lit les outils de tâches natifs (TaskCreate, TaskUpdate, TodoWrite) et la condition de `/goal` ; aucun outil ni token en plus.
+
+## Éléments construits
+
+Construits par Coeurdar, dans ce dépôt :
+
+- Panneau de supervision : cards Modèle, Contexte, Objectif, Forfait, Process, Parallélisme, Projets, bandeau d'une ligne.
+- Bascule de modèle sans perte de cache, avec classement des demandes (mots-clés, classifieur Haiku, repli sur Opus).
+- Gardes : cache froid, maintien au chaud, collision entre sessions, handoff.
+- Commandes `/compagnon` (panneau, `charge`, `decisions`, `keepwarm`, `handoff`).
 
 ## Installation
 
