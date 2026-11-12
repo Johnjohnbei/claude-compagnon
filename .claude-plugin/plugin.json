@@ -1,7 +1,7 @@
 {
   "name": "compagnon",
   "version": "0.13.0",
-  "description": "Companion pane: automatic model switching without losing the cache, context, 7-day plan usage, stalled processes, errors, repository state.",
+  "description": "Companion pane read by priority, with an artichoke that shows the session state: automatic model switching without losing the cache, context, 7-day plan usage, running and stuck agents, errors, repository state.",
   "author": {
     "name": "Johnjohnbei"
   },
