@@ -528,6 +528,19 @@ test('a request that opens with a lookup verb is a lookup: mapping, finding, lis
   expect(advise('cartographie la cause racine de la lenteur sur mobile')?.tier).toBe('fable')
 })
 
+test('the debugging rule does not fire on a typo or inside another word', async () => {
+  // « erreur de frappe » used to cost an Opus turn at high effort, while « faute de frappe » went to Sonnet
+  expect(advise("corrige l'erreur de frappe dans le titre de la page lab")?.tier).toBe('sonnet')
+  expect(advise('corrige les erreurs de frappe du README')?.tier).toBe('sonnet')
+  expect(advise('corrige la faute de frappe dans le README')?.tier).toBe('sonnet')
+  // « implante » holds « plante »: it is no crash
+  expect(advise('implante le composant de recherche dans la page')?.need).not.toBe('Débogage')
+  // the real ones still are
+  expect(advise('il y a une erreur dans les logs au démarrage du serveur')?.need).toBe('Débogage')
+  expect(advise('le build plante depuis la mise à jour de vite')?.need).toBe('Débogage')
+  expect(advise('plante au démarrage quand le cache est vide, regarde')?.need).toBe('Débogage')
+})
+
 test('the classifier raises the weak edit rule, never lowers it, and answers what no rule recognised', async () => {
   const edit = advise('ajoute un nouveau type de fiche concept avec ses relations')!
   expect(edit.tier).toBe('sonnet')

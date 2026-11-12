@@ -67,10 +67,12 @@ export function supportsAlias(version: unknown): boolean {
 // First match wins, strongest need first. Sources: Anthropic model-config (Fable for ambiguous problems and
 // architecture, Opus for complex reasoning, Sonnet for daily coding, Haiku for simple tasks) and the former
 // rules of an earlier router kept here: upgrade freely, downgrade only on a small context, never route subagents.
-// ponytail: keyword rules, zero token (user choice 2026-11-05); a Haiku classifier if the hit rate disappoints.
+// ponytail: keyword rules, zero token (user choice 2026-11-05); what they miss, or only the weak edit rule catches, goes to the Haiku classifier (CLASSIFY_LABELS).
+// The debugging rule is strong (never second-guessed), so a substring hit there costs an Opus turn: « erreur de frappe » is a typo
+// (its twin « faute de frappe » already went to the edit rule), and « plante » must start a word (« implante » is no crash).
 export const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
   { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
-  { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|plante|erreur/i },
+  { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|\bplante|erreur(?!s? de frappe)/i },
   // A request that opens with a lookup word or verb is a lookup, whatever it names (« liste les fichiers de tests », « cartographie ce dépôt »): above the edit and feature rules,
   // below the debugging and architecture ones (« où est le bug » stays a bug). JS \b is ASCII-only: it never matches after « où ».
   { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi|cartograph\w*|trouve|recense|repère|dresse la liste|(?:fais|donne)(?:-moi)? la liste|qui appelle)(?=[\s,?:-]|$)/i },
