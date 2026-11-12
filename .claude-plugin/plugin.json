@@ -20,6 +20,12 @@
       "description": "One line of figures (model, advisor, cost, context, agents) above the prompt. Uncheck to keep the pane only.",
       "default": true
     },
+    "showCompanion": {
+      "type": "boolean",
+      "title": "Companion drawing",
+      "description": "A small artichoke beside the pane's head that shows the session's state (working, waiting for you, done, failed, resting). Uncheck to keep the text only. It is hidden anyway when the pane is narrower than 40 columns.",
+      "default": true
+    },
     "classify": {
       "type": "boolean",
       "title": "Classify unrecognised requests with a model",

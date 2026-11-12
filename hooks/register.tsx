@@ -50,6 +50,8 @@ let reposAt = 0
 let coldGuardTokens = 150_000
 /** The band above the prompt: on unless the `showBand` option is switched off. */
 let isBandShown = true
+/** The companion drawing beside the pane's head: on unless the `showCompanion` option is switched off. */
+let isCompanionShown = true
 /** The classifier layer: on unless the `classify` option is switched off. */
 let isClassifierOn = true
 const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
@@ -81,6 +83,7 @@ async function refreshRepos($: $) {
 export const register: Register = (on, options) => {
   projects = String(options.projects ?? '').split(';').map(p => p.trim()).filter(Boolean)
   isBandShown = isOptionOn(options.showBand)
+  isCompanionShown = isOptionOn(options.showCompanion)
   isClassifierOn = isOptionOn(options.classify)
   coldGuardTokens = tokensOption(options.coldGuardTokens) ?? 150_000
   on('session.start', async ($, e, next) => {
@@ -326,5 +329,5 @@ export const register: Register = (on, options) => {
     return undefined // own failure: no band, never a broken prompt area
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, true, () => void refreshRepos($)))
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => renderPane($, $.ui.resolve(e), e.props.bodyColumns, isCompanionShown, () => void refreshRepos($)))
 }

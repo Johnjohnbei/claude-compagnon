@@ -1148,6 +1148,14 @@ test('the companion draws beside the head from 40 columns, and goes below, the t
   expect(narrow.title).toBeDefined()
 })
 
+test('showCompanion off draws no companion, and the head text stays', { options: { showCompanion: false } }, async ($, on) => {
+  mockState(on, { ...STATE, collisions: [], agents: [], turnStartedAt: LIVE - 5_000 })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.findAll({ type: 'Text', text: /^[ ▀▄]*[▀▄][ ▀▄]*$/ })).toEqual([])
+  expect((await ui.find({ type: 'Text', text: /Claude is working · 0m05$/ }))?.text).toBeDefined()
+  await ui.unmount()
+})
+
 test('the band says in amber that the session waits for you, in place of the agents', async ($, on) => {
   mockState(on, { ...STATE, waiting: BUSY_ALL.waiting })
   const band = await $.ui.mount({
