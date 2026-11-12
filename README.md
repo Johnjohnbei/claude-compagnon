@@ -306,7 +306,7 @@ claude plugin test .
 Typecheck:
 
 ```
-npx -y -p typescript@5.6.3 tsc -p .
+npx -y -p typescript@5.9.3 tsc -p .
 ```
 
 No npm dependency: `validate` and `test` come with the CLI. The engine writes its API types and the base `tsconfig.json` to `.claude-plugin/types/` when an interactive session loads the mod from this folder (`claude --plugin-dir .`). That folder is generated and ignored by git.
