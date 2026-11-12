@@ -15,7 +15,7 @@ const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v
 const cache = atom({ plugin: 'compagnon', key: 'cache' } as const, null, { shape: 'v1' })
 const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
 const background = atom({ plugin: 'compagnon', key: 'background' } as const, [], { shape: 'v1' })
-const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v1' })
+const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v2' })
 const usage = atom({ plugin: 'compagnon', key: 'usage' } as const, null, { shape: 'v1' })
 const tick = atom({ plugin: 'compagnon', key: 'tick' } as const, 0, { shape: 'v1' })
 const journal = atom({ plugin: 'compagnon', key: 'journal' } as const, [], { shape: 'v1' })
@@ -27,8 +27,8 @@ const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
 const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
-const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
-const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v1' })
+const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v2' })
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v2' })
 const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
 
@@ -171,16 +171,24 @@ export async function stopTask($: $, id: string) {
   await update($, background, list => list.filter(t => t.id !== id))
 }
 
+/** Agents already over when the session was cleared: the engine may keep listing them, they belong to the session before. */
+const endedBeforeClear = new Set<string>()
+export async function forgetEndedAgents($: $) {
+  endedBeforeClear.clear()
+  for (const a of await $.agent.list()) if (isFinished(a.status)) endedBeforeClear.add(a.id)
+}
+
 export async function refreshAgents($: $) {
   const now = await $.clock.now()
-  const list = await $.agent.list()
+  const list = (await $.agent.list()).filter((a: { id: string; status: string }) => !(isFinished(a.status) && endedBeforeClear.has(a.id)))
   await update($, agents, (was: AgentRow[]) =>
-    list.map((a: { id: string; description: string; type: string; status: string; parentId?: string }) => ({
+    list.map((a: { id: string; description: string; type: string; status: string; parentId?: string; teammateId?: string }) => ({
       id: a.id,
       label: a.description,
       type: a.type,
       status: a.status,
       parentId: a.parentId,
+      isTeammate: a.teammateId !== undefined,
       firstSeen: was.find(w => w.id === a.id)?.firstSeen ?? now,
       // A run begins when the status enters running or waiting, carries on while it stays there, and is remembered once it ended (its duration).
       runStart: isInFlight(a.status) ? (isInFlight(was.find(w => w.id === a.id)?.status ?? '') ? (was.find(w => w.id === a.id)?.runStart ?? was.find(w => w.id === a.id)?.firstSeen) : now) : was.find(w => w.id === a.id)?.runStart,

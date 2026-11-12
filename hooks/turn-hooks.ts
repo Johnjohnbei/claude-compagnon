@@ -10,7 +10,7 @@ import { animateWhileMoving, quietly, recordError, recordTurn, refreshAgents, re
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const background = atom({ plugin: 'compagnon', key: 'background' } as const, [], { shape: 'v1' })
-const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
+const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v2' })
 const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
 const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
@@ -23,7 +23,7 @@ export function registerTurnHooks(on: On) {
     if (e.notification_type === 'permission_prompt') {
       await quietly($, async () => {
         const at = await $.clock.now()
-        await update($, waiting, () => ({ kind: e.notification_type, message: e.message.slice(0, 80), at }))
+        await update($, waiting, () => ({ kind: e.notification_type, message: e.message.slice(0, 80), at, ...(e.agent_id ? { agentId: e.agent_id } : {}) }))
       })
       void quietly($, () => animateWhileMoving($))
     }
@@ -71,12 +71,12 @@ export function registerTurnHooks(on: On) {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    // A subagent's end changes the RUNNING and DONE sections, and settles a prompt raised before it ended: nobody waits for an
-    // agent that is over (the person denied it, or it died).
+    // A subagent's end changes the RUNNING and DONE sections, and settles the permission that agent raised: nobody waits for an
+    // agent that is over. A prompt of the main loop or of another agent is not its to settle.
     if (e.agentId) {
       await quietly($, async () => {
-        const [w, ended] = await Promise.all([read($, waiting), $.clock.now()])
-        if (w && w.at <= ended) await update($, waiting, () => null)
+        const w = await read($, waiting)
+        if (w?.agentId === e.agentId) await update($, waiting, () => null)
       })
       await quietly($, () => refreshAgents($))
       return done

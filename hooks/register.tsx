@@ -11,7 +11,7 @@ import { chargeReport } from './load-report'
 import { errorReport, isOptionOn, normPath, tokensOption, touchedRepos } from './logic'
 import { renderBand, renderPane, restorePaneMode } from './pane-view'
 import { coldSendGuard, isAliasSupported, routePrompt } from './prompt-routing'
-import { note, pollForever, quietly, recordError, refreshUsage, trackModel, trackTasks } from './session-tracking'
+import { forgetEndedAgents, note, pollForever, quietly, recordError, refreshUsage, trackModel, trackTasks } from './session-tracking'
 import { followedDirs, refreshRepos, setProjects } from './repo-tracking'
 import { registerTurnHooks } from './turn-hooks'
 
@@ -20,7 +20,7 @@ const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v
 const decision = atom({ plugin: 'compagnon', key: 'decision' } as const, null, { shape: 'v1' })
 const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
 const running = atom({ plugin: 'compagnon', key: 'running' } as const, [], { shape: 'v1' })
-const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
+const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v2' })
 const usedRepos = atom({ plugin: 'compagnon', key: 'usedRepos' } as const, [], { shape: 'v1' })
 const advisor = atom({ plugin: 'compagnon', key: 'advisor' } as const, { calls: 0, lastAt: 0, pending: 0 }, { shape: 'v1' })
 const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v1' })
@@ -31,8 +31,8 @@ const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
-const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v1' })
-const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v1' })
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, {}, { shape: 'v2' })
+const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v2' })
 const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 /** When the main turn in flight began, 0 when none: the activity indicator's clock. */
@@ -119,6 +119,7 @@ export const register: Register = (on, options) => {
   on('classic.SessionStart', { source: ['clear', 'resume'] }, async ($, e, next) => {
     await quietly($, async () => {
       await renewSession($)
+      await forgetEndedAgents($) // the engine may keep listing agents that ended before: they are not this session's failures
       await Promise.all([
         update($, tasks, () => []), update($, goal, () => null), update($, keepWarm, () => null), update($, lastTurnEnd, () => 0),
         update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []), update($, turnStartedAt, () => 0), update($, lastTurnReason, () => null), update($, collisionAsk, () => ({})), update($, agents, () => []), update($, waiting, () => null),
@@ -206,7 +207,7 @@ export const register: Register = (on, options) => {
     }
     await quietly($, async () => {
       const start = await $.clock.now()
-      await update($, waiting, () => null)
+      await update($, waiting, w => (w && w.agentId !== e.agentId ? w : null)) // only this loop's own prompt is answered by its call
       await update($, running, list => [...list, { id, tool: e.tool, label: labelOf(e.tool, e as unknown as Record<string, unknown>), start }])
       const hit = touchedRepos(e as unknown as Record<string, unknown>, followedDirs()).map(normPath)
       if (hit.length > 0) await update($, usedRepos, list => (hit.every(h => list.includes(h)) ? list : [...new Set([...list, ...hit])]))

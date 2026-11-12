@@ -6,9 +6,11 @@ import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needs
 import { chargeReport, contextParts } from './load-report'
 import { SPRITE_COLUMNS, SPRITE_ROWS, spriteCells, spriteRuns } from './companion-sprite'
 import { FRAME_MS } from './session-tracking'
-import { activeAgents, activityOf, DONE_MS, FRESH_FAILURE_MS, hasFreshFailure, isBusy, isFinished, isInFlight, isMoving, isStuck, moodOf, STUCK_MS } from './mood'
+import { activeAgents, activityOf, DONE_MS, FRESH_FAILURE_MS, hasFreshFailure, isBusy, isFinished, isInFlight, isLong, isMoving, isStuck, moodOf, STUCK_MS } from './mood'
 import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, elapsedLabel, ERROR_LOG_MAX, errorReport, clockLabel, errorSummary, errorText, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
 
+/** The shape tag each atom is declared with (v2: the three whose value changed shape in 0.13.0). */
+const shapeOf = (key: string): string => (['waiting', 'agents', 'collisionAsk'].includes(key) ? 'v2' : 'v1')
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
   warm: true, caching: true, ttl: '1h', expiresAt: NOW / 1000 + expiresIn, recacheTokensIfCold: recache, hitRatio: 0.9,
@@ -331,7 +333,7 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: shapeOf(key), value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
@@ -362,7 +364,7 @@ test('the band above the prompt is one line of figures', async ($, on) => {
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['tick'].includes(key) ? 0 : null
-    return { value: { value: { shape: 'v1', value: key in STATE ? STATE[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: shapeOf(key), value: key in STATE ? STATE[key] : fallback }, version: 1 } }
   })
   on('store.get', () => ({ value: undefined }))
   on('clock.now', () => ({ value: LIVE }))
@@ -460,7 +462,7 @@ test('wide pane: the advisor sits beside the main session, the scouts under them
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: shapeOf(key), value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
@@ -480,7 +482,7 @@ test('a narrow pane: no card spills past its width, compact or unfolded, and a s
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: shapeOf(key), value: key in OPEN ? OPEN[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
@@ -756,7 +758,7 @@ test('the band and the status line count the same active agents: an ended one (c
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
-    return { value: { value: { shape: 'v1', value: key in state ? state[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: shapeOf(key), value: key in state ? state[key] : fallback }, version: 1 } }
   })
   on('store.get', () => ({ value: undefined }))
   on('clock.now', () => ({ value: LIVE }))
@@ -787,7 +789,7 @@ function mockState(on: Parameters<TestBody>[1], of: Record<string, unknown> | ((
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark', 'turnStartedAt'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking', 'isExpanded'].includes(key) ? false : null
     const state = current()
-    return { value: { value: { shape: 'v1', value: key in state ? state[key] : fallback }, version: 1 } }
+    return { value: { value: { shape: shapeOf(key), value: key in state ? state[key] : fallback }, version: 1 } }
   })
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: now() }))
@@ -998,8 +1000,14 @@ test('an agent run starts when it enters running, a stuck one keeps nothing aliv
   const woken = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000 }
   expect(activityOf(0, 0, [woken], LIVE)).toEqual({ state: 'working', since: LIVE - 20_000 }) // 20 s, not 40 min
   expect(isStuck(woken, LIVE)).toBe(false)
-  const dead = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - STUCK_MS - 1 } // a teammate pane that died stays running
+  const dead = { status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - STUCK_MS - 1, isTeammate: true } // a teammate pane that died stays running
   expect(isStuck(dead, LIVE)).toBe(true)
+  // a subagent has a real loop: 12 minutes of work is work, the face stays on it and the pane keeps moving (amber is only a look)
+  const long = { status: 'running', firstSeen: LIVE - 12 * 60_000 }
+  expect(isLong(long, LIVE)).toBe(true)
+  expect(isStuck(long, LIVE)).toBe(false)
+  expect(isBusy(0, [long], LIVE)).toBe(true)
+  expect(activityOf(0, 0, [long], LIVE)).toEqual({ state: 'working', since: LIVE - 12 * 60_000 })
   expect(isBusy(0, [dead], LIVE)).toBe(false)
   expect(activityOf(0, 0, [dead], LIVE)).toBe(null)
   expect(isStuck({ status: 'idle', firstSeen: LIVE - 40 * 60_000 }, LIVE)).toBe(false)
@@ -1280,7 +1288,7 @@ function animationHarness(on: Parameters<TestBody>[1], files: Record<string, str
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'turnStartedAt', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : null
-    return { value: { value: { shape: 'v1', value: atoms.has(key) ? atoms.get(key) : fallback }, version: versions.get(key) ?? 1 } }
+    return { value: { value: { shape: shapeOf(key), value: atoms.has(key) ? atoms.get(key) : fallback }, version: versions.get(key) ?? 1 } }
   })
   on('state.set', (_, e) => {
     const { key, value, ifVersion } = e as unknown as { key: string; value: { value: unknown }; ifVersion?: number }
@@ -1294,7 +1302,8 @@ function animationHarness(on: Parameters<TestBody>[1], files: Record<string, str
   on('session.id', () => ({ value: 'session-1' }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.usage', () => ({ value: { context: { percent: 10, tokens: 20_000, window: 200_000 }, rateLimits: [], cost: { usd: 0 }, startedAt: LIVE } }))
-  on('agent.list', () => ({ value: [] }))
+  const lists = { agents: [] as unknown[] }
+  on('agent.list', () => ({ value: lists.agents }) as never)
   on('fs.read', (_, e) => {
     const path = (e as unknown as { path: string }).path
     const hit = Object.entries(files).find(([name]) => path.endsWith(name))
@@ -1305,7 +1314,7 @@ function animationHarness(on: Parameters<TestBody>[1], files: Record<string, str
   on('turn.start', (_, e) => ({ turnId: (e as unknown as { turnId?: string }).turnId ?? 't1' }) as never)
   on('turn.complete', () => ({ text: '' }) as never)
   on('classic.Notification', () => ({}) as never)
-  return { clock, atoms, count }
+  return { clock, atoms, count, lists }
 }
 const notify = (type: string) => ({ notification_type: type, message: 'Claude needs your permission to use Bash' }) as never
 const complete = (reason: string) => ({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason }) as never
@@ -1430,18 +1439,56 @@ test('narrow, each section row is one line: no name column, no key hint, every p
   expect(wide.all.some(t => /^answer in chat$/.test(t.text))).toBe(true)
 })
 
-test('a subagent whose turn ends settles a permission raised before it: nobody waits for an agent that is over', async ($, on) => {
+const notifyFrom = (agentId?: string) => ({ notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash', ...(agentId ? { agent_id: agentId } : {}) }) as never
+const completeFrom = (agentId: string) => ({ ...(complete('answer') as object), agentId }) as never
+
+test('a subagent that asked is settled by its own end, and its prompt is recorded with who asked', async ($, on) => {
   const { clock, atoms, count } = animationHarness(on)
   await clock.settle()
-  await $.classic.Notification(notify('permission_prompt'))
+  await $.classic.Notification(notifyFrom('A'))
+  expect(atoms.get('waiting')).toMatchObject({ kind: 'permission_prompt', agentId: 'A' })
   await clock.advance(1_000)
   expect(count.redraws).toBeGreaterThan(0)
-  await $.turn.complete({ ...(complete('answer') as object), agentId: 'a1' } as never) // no main turn is involved
+  await $.turn.complete(completeFrom('A')) // A asked, the person denied, A ended: no main turn is involved
   expect(atoms.get('waiting')).toBe(null)
   await clock.advance(FRAME_MS)
   const stopped = count.redraws
   await clock.advance(10_000)
   expect(count.redraws).toBe(stopped) // the loop stopped with the wait
+})
+
+test('another agent ending does not answer a prompt: A asks, B ends, A\'s prompt stays', async ($, on) => {
+  const { clock, atoms } = animationHarness(on)
+  await clock.settle()
+  await $.classic.Notification(notifyFrom('A'))
+  await $.turn.complete(completeFrom('B'))
+  expect(atoms.get('waiting')).toMatchObject({ agentId: 'A' })
+})
+
+test('the main loop\'s prompt survives a background agent ending, and only the main turn settles it', async ($, on) => {
+  const { clock, atoms } = animationHarness(on)
+  await clock.settle()
+  await $.classic.Notification(notifyFrom()) // raised by the main loop: no agent id
+  expect(atoms.get('waiting')).not.toHaveProperty('agentId')
+  await $.turn.complete(completeFrom('bg-1'))
+  expect(atoms.get('waiting')).toMatchObject({ kind: 'permission_prompt' })
+  await $.turn.complete(complete('answer'))
+  expect(atoms.get('waiting')).toBe(null)
+})
+
+test('after a /clear an agent the engine still lists as failed is not a fresh failure', async ($, on) => {
+  const { clock, atoms, lists } = animationHarness(on)
+  on('classic.SessionStart', () => ({}) as never)
+  lists.agents = [{ id: 'old', description: 'lint pass', type: 'lint', status: 'failed' }]
+  await clock.settle()
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  await $.turn.complete(complete('answer')) // refreshes the agents from the list, as the poll does
+  expect(atoms.get('agents')).toEqual([]) // the old failure is not read back, nor made fresh by this poll
+  lists.agents = [...lists.agents, { id: 'new', description: 'tests', type: 'verify', status: 'failed' }]
+  await $.turn.start({ text: 'again', turnId: 't2' } as never)
+  await $.turn.complete(complete('answer'))
+  expect((atoms.get('agents') as Array<{ id: string }>).map(x => x.id)).toEqual(['new']) // one that fails after the clear still counts
 })
 
 test('a /clear starts clean: no failed agent from before, no collision question left open', async ($, on) => {
@@ -1503,8 +1550,8 @@ test('a teammate idle or pending shows on one dim line, a stuck agent in amber w
   mockState(on, { ...HEALTHY, running: [], agents: [
     { id: 't1', label: 'reviewer', type: 'teammate', status: 'idle', firstSeen: LIVE - 40 * 60_000 },
     { id: 't2', label: 'planner', type: 'teammate', status: 'pending', firstSeen: LIVE - 60_000 },
-    { id: 's1', label: 'dead pane', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 700_000 },
-    { id: 'w1', label: 'woken one', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000 },
+    { id: 's1', label: 'dead pane', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 700_000, isTeammate: true },
+    { id: 'w1', label: 'woken one', type: 'teammate', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000, isTeammate: true },
   ] })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /^idle {2}reviewer, planner$/ }))?.props.dimColor).toBe(true)
@@ -1512,5 +1559,12 @@ test('a teammate idle or pending shows on one dim line, a stuck agent in amber w
   expect(await ui.find({ type: 'Text', text: /^woken one$/ })).toBeDefined() // not stuck: a normal row
   expect((await ui.find({ type: 'Text', text: /may be stuck/ }))?.text).not.toMatch(/woken/)
   expect((await ui.find({ type: 'Text', text: /Claude is working · 0m20$/ }))?.text).toBeDefined() // from the run, not from 40 min ago
+  await ui.unmount()
+})
+
+test('the Scouts card times a scout from its current run, like the sections', async ($, on) => {
+  mockState(on, { ...OPEN, agents: [{ id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 40 * 60_000, runStart: LIVE - 20_000, isTeammate: true }] })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^● search 0:20 · map$/ }))?.text).toBeDefined()
   await ui.unmount()
 })

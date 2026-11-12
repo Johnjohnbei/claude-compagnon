@@ -7,7 +7,7 @@ import { ACCENT, Card, TONE, gauge, k, plural, usd, type CardMode, type El, type
 import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
 import { SOURCE_NAME } from './request-routing'
 import { ageLabel, clockLabel, costSummary } from './logic'
-import { activeAgents, isFinished, isInFlight } from './mood'
+import { activeAgents, isFinished, isInFlight, runStartOf } from './mood'
 
 const hhmm = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 const DAY = 86_400_000
@@ -68,9 +68,9 @@ const SCOUTS: Array<[string, string, string]> = [['search', 'maps the repository
 function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; tone: Tone; isIdle: boolean } {
   const last = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)[0]
   if (!last) return { mark: '·', time: 'idle', tone: 'ok', isIdle: true }
-  if (isInFlight(last.status)) return { mark: '●', time: clockLabel(now - last.firstSeen), tone: 'active', isIdle: false }
+  if (isInFlight(last.status)) return { mark: '●', time: clockLabel(now - runStartOf(last)), tone: 'active', isIdle: false }
   if (!isFinished(last.status)) return { mark: '·', time: 'idle', tone: 'ok', isIdle: true } // pending or between turns: not running
-  const time = clockLabel((last.endedAt ?? now) - last.firstSeen)
+  const time = clockLabel((last.endedAt ?? now) - runStartOf(last))
   return last.status === 'completed' ? { mark: '✓', time, tone: 'ok', isIdle: false } : { mark: '✕', time, tone: 'error', isIdle: false }
 }
 

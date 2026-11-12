@@ -5,7 +5,7 @@ import type { RenderChildren } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheVerdict, Collision, ErrorEntry, Handoff, RunningTool, Usage, Waiting } from '../types'
 import { ACCENT, TONE, k, spin, type El } from './card-frame'
 import { CACHE_KEEP_TOKENS, COLD_SOON_MS, ageLabel, clockLabel, elapsedLabel, levelOf } from './logic'
-import { STUCK_MS, activeAgents, isStuck, runStartOf, type Activity } from './mood'
+import { STUCK_MS, activeAgents, isLong, runStartOf, type Activity } from './mood'
 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
 const TOOL_LONG = 120_000
@@ -117,7 +117,7 @@ export function Running(E: El, w: Work, on: Actions) {
     return Row(E, w.width, { mark: isLong ? ' ▲ ' : mark(i), color: isLong ? amber : isPaused ? undefined : ACCENT, name: t.tool, text: <Text color={isLong ? amber : undefined} dimColor={!isLong} wrap="truncate-end">{t.label}</Text>, hint: <Text color={isLong ? amber : undefined} dimColor={!isLong}>{elapsedLabel(w.now - t.start)}</Text> })
   })
   const agentRows = (a: AgentRow, depth: number, i: number): RenderChildren[] => {
-    const isHeld = a.status === 'waiting' || isStuck(a, w.now)
+    const isHeld = a.status === 'waiting' || isLong(a, w.now)
     const lead = depth > 0 ? `${'  '.repeat(depth)}└` : ''
     const own = isHeld
       ? Row(E, w.width, { mark: ` ${lead}▲ `, color: amber, name: a.type, text: <Text color={amber} wrap="truncate-end">{a.label} · {a.status === 'waiting' ? 'waiting' : `running ${elapsedLabel(w.now - runStartOf(a))}, may be stuck`}</Text>, action: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> })

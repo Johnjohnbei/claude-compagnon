@@ -27,7 +27,7 @@ The companion has five moods. The mood is read from the real state, by priority:
 | --- | --- | --- |
 | Failed | A failed agent or an error of the mod during this turn (or in the last 2 minutes when no turn runs), or a turn that ended in an API error or a refusal; the main turn's own ending holds for its 2 minutes whatever the agents do after it. A failure older than that stays listed in `FAILED` but the face follows the rest | red |
 | Needs you | A permission prompt is waiting, or a collision question is open (counted from the question, not from the other session's edit). An idle notice is rest, and a collision you answered `Proceed` to waits for no one | amber, the artichoke raises a leaf |
-| Works | A turn or an agent is running, counted from when its current run began (a teammate that is idle or pending is not working, and one running for over 10 minutes with no change is treated as possibly stuck and keeps nothing alive) | blue, it bobs and glances aside |
+| Works | A turn or an agent is running, counted from when its current run began (a teammate that is idle or pending is not working, and a teammate in its own pane that has stayed `running` for over 10 minutes is treated as possibly stuck: its status can stand stale, so it keeps nothing alive. A subagent that long is work) | blue, it bobs and glances aside |
 | Done | A turn ended in an answer, or an agent ended, less than 20 s ago. An interrupted turn reads `Interrupted` for 20 s, then rests | green |
 | Resting | None of the above | grey |
 
