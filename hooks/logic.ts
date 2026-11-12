@@ -116,7 +116,7 @@ export const isFinished = (status: string): boolean => FINISHED_AGENT.has(status
 export const activeAgents = <A extends { status: string }>(list: A[]): A[] => list.filter(a => !isFinished(a.status))
 
 /** How long `✓ done` stays once the last turn or agent ended: drawn at the end, gone by the next 15 s refresh or the one after. */
-export const DONE_MS = 10_000
+export const DONE_MS = 20_000
 export type Activity = { state: 'working'; since: number } | { state: 'done' } | null
 /**
  * Whether Claude is busy: a main turn in flight (`turnStartedAt`, 0 when none) or an agent still active; `since` is the

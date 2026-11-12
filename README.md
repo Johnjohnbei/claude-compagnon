@@ -21,7 +21,7 @@ Rows come by importance: first what blocks or runs (`Process`), then the mod's o
 | `Context` | how full the context window is | gauge, tokens, handoff state |
 | `Projects` | repositories touched, `+N` followed but untouched | branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
 | `Model` | the main model | the model chain: `Advisor` (the advisor's calls; its advice is encrypted, so only the call is visible), `Model` (cache countdown, the size Claude would reread if the cache went cold, effort, load), `Decisions` (the tier the last request got and which layer chose it), `Scouts` (the agents named `search`, `grep` and `audit`, one line each; other agents are counted), `Log` (the last things the mod decided) |
-| status line | `● working · 2m14` while a turn or an agent runs, `✓ done` for 10 s after, then agents, advisor calls, decisions and cost | the same line, under the chain |
+| status line | `● working · 2m14` while a turn or an agent runs, `✓ done` for 20 s after, then agents, advisor calls, decisions and cost | the same line, under the chain |
 | `7-day plan` | your weekly plan usage | 7-day curve, reset time |
 
 Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents.
