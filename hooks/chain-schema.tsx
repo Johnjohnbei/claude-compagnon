@@ -6,7 +6,7 @@ import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision,
 import { ACCENT, Card, TONE, gauge, k, plural, usd, type CardMode, type El, type Tone } from './card-frame'
 import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
 import { SOURCE_NAME } from './request-routing'
-import { activeAgents, ageLabel, costSummary, isFinished, type Activity } from './logic'
+import { activeAgents, ageLabel, clockLabel, costSummary, isFinished, type Activity } from './logic'
 import { ActivityText } from './cards'
 
 const hhmm = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
@@ -56,7 +56,6 @@ export function JournalCard(E: El, width: number, list: LogEntry[]) {
     )))
 }
 
-const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'keeps the model', switch: 'switches to this tier', delegate: 'hands to a subagent' }
 /** The named scouts of ~/.claude/agents, and what each is for. */
 const SCOUTS: Array<[string, string, string]> = [['search', 'maps the repository', 'map'], ['grep', 'call sites', 'calls'], ['audit', 'diff review, worktree', 'review']]
@@ -65,8 +64,8 @@ const SCOUTS: Array<[string, string, string]> = [['search', 'maps the repository
 function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; tone: Tone; isIdle: boolean } {
   const last = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)[0]
   if (!last) return { mark: '·', time: 'idle', tone: 'ok', isIdle: true }
-  if (!isFinished(last.status)) return { mark: '●', time: clock(now - last.firstSeen), tone: 'active', isIdle: false }
-  const time = clock((last.endedAt ?? now) - last.firstSeen)
+  if (!isFinished(last.status)) return { mark: '●', time: clockLabel(now - last.firstSeen), tone: 'active', isIdle: false }
+  const time = clockLabel((last.endedAt ?? now) - last.firstSeen)
   return last.status === 'completed' ? { mark: '✓', time, tone: 'ok', isIdle: false } : { mark: '✕', time, tone: 'error', isIdle: false }
 }
 

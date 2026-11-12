@@ -4,7 +4,8 @@ import type { CacheInfo, ErrorEntry, Ledger, LogEntry } from '../types'
 import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLabel, releaseOf, versionOf } from './tiers'
 import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { chargeReport, contextParts } from './load-report'
-import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
+import { SPRITE_COLUMNS, SPRITE_ROWS, spriteCells, spriteRuns } from './companion-sprite'
+import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, clockLabel, errorSummary, errorText, FRESH_ERROR_MS, goalProgress, hasFreshError, isAnimated, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, moodOf, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -872,8 +873,8 @@ test('the activity reads working while a turn or an agent runs, done for a few s
   expect(activityOf(LIVE - 20_000, 0, [], LIVE)).toEqual({ state: 'working', since: LIVE - 20_000 })
   expect(activityOf(LIVE - 20_000, 0, [agent], LIVE)).toEqual({ state: 'working', since: LIVE - 134_000 }) // the earliest start
   const ended = { status: 'completed', firstSeen: LIVE - 134_000, endedAt: LIVE - 3_000 }
-  expect(activityOf(0, 0, [ended], LIVE)).toEqual({ state: 'done' })
-  expect(activityOf(0, LIVE - 2_000, [], LIVE)).toEqual({ state: 'done' }) // a main turn that just ended
+  expect(activityOf(0, 0, [ended], LIVE)).toEqual({ state: 'done', at: LIVE - 3_000 })
+  expect(activityOf(0, LIVE - 2_000, [], LIVE)).toEqual({ state: 'done', at: LIVE - 2_000 }) // a main turn that just ended
   expect(activityOf(0, 0, [ended], LIVE - 3_000 + DONE_MS)).toBe(null)
   expect(activityOf(0, 0, [], LIVE)).toBe(null) // nothing ever ran
   expect(elapsedLabel(134_000)).toBe('2m14')
@@ -953,4 +954,63 @@ test('a broken store leaves the pane compact and raises nothing', async ($, on) 
   await ui.press({ key: 'expand' }) // the toggle itself still works, only its memory fails
   expect(store.get('paneExpanded')).toBe(true) // untouched: nothing was written
   await ui.unmount()
+})
+
+test('the mood is derived by priority: error, then waiting for you, then work, then done, else idle', async () => {
+  const working = { state: 'working', since: LIVE - 5_000 } as const
+  const done = { state: 'done', at: LIVE - 2_000 } as const
+  expect(moodOf({ isFailed: false, isWaiting: false, activity: working })).toBe('work')
+  expect(moodOf({ isFailed: false, isWaiting: false, activity: done })).toBe('done')
+  expect(moodOf({ isFailed: false, isWaiting: false, activity: null })).toBe('idle')
+  // waiting beats work and done; a failure beats everything
+  expect(moodOf({ isFailed: false, isWaiting: true, activity: working })).toBe('wait')
+  expect(moodOf({ isFailed: false, isWaiting: true, activity: done })).toBe('wait')
+  expect(moodOf({ isFailed: true, isWaiting: true, activity: working })).toBe('error')
+  expect(moodOf({ isFailed: true, isWaiting: false, activity: null })).toBe('error')
+  // only work and a wait move: the pane is redrawn every frame for those two and never otherwise
+  expect((['work', 'wait', 'done', 'error', 'idle'] as const).filter(isAnimated)).toEqual(['work', 'wait'])
+})
+
+test('an error of the mod counts for the turn in flight, or for a minute when none runs', async () => {
+  expect(hasFreshError([], 0, LIVE)).toBe(false)
+  expect(hasFreshError([{ at: LIVE - 10_000 }], LIVE - 30_000, LIVE)).toBe(true) // during this turn
+  expect(hasFreshError([{ at: LIVE - 40_000 }], LIVE - 30_000, LIVE)).toBe(false) // an earlier turn's
+  expect(hasFreshError([{ at: LIVE - 10_000 }], 0, LIVE)).toBe(true) // no turn: the last minute
+  expect(hasFreshError([{ at: LIVE - FRESH_ERROR_MS - 1 }], 0, LIVE)).toBe(false)
+  expect(clockLabel(41 * 60_000 + 8_000)).toBe('41:08')
+})
+
+test('the companion is 16 columns by 9 rows for every mood and frame, half blocks only', async () => {
+  for (const mood of ['work', 'wait', 'done', 'error', 'idle'] as const) {
+    for (let tick = 0; tick < 4; tick++) {
+      const rows = spriteCells(mood, tick)
+      expect(rows.length).toBe(SPRITE_ROWS)
+      expect(rows.every(r => r.length === SPRITE_COLUMNS)).toBe(true)
+      // the merged runs cover the same 16 cells
+      expect(spriteRuns(mood, tick).map(r => r.reduce((n, run) => n + run.text.length, 0))).toEqual(Array(SPRITE_ROWS).fill(SPRITE_COLUMNS))
+    }
+  }
+  // work has four frames, wait two, the others one: the tick wraps
+  expect(spriteCells('work', 4)).toEqual(spriteCells('work', 0))
+  expect(spriteCells('work', 1)).not.toEqual(spriteCells('work', 0))
+  expect(spriteCells('wait', 2)).toEqual(spriteCells('wait', 0))
+  expect(spriteCells('done', 3)).toEqual(spriteCells('done', 0))
+})
+
+test('a half block takes the top pixel as colour and the bottom one as background, a lone bottom pixel is a lower half', async () => {
+  const cells = spriteCells('work', 0).flat()
+  const both = cells.find(c => c.char === '▀' && c.backgroundColor)
+  const topOnly = cells.find(c => c.char === '▀' && !c.backgroundColor)
+  const bottomOnly = cells.find(c => c.char === '▄')
+  const empty = cells.find(c => c.char === ' ')
+  expect(both?.color).toMatch(/^#[0-9a-f]{6}$/)
+  expect(both?.backgroundColor).toMatch(/^#[0-9a-f]{6}$/)
+  expect(topOnly?.color).toMatch(/^#[0-9a-f]{6}$/)
+  expect(bottomOnly?.color).toMatch(/^#[0-9a-f]{6}$/)
+  expect(bottomOnly?.backgroundColor).toBe(undefined)
+  expect(empty).toEqual({ char: ' ' })
+  // the first row is a stem: the top pixels are lit, the bottom ones too (D then G of the first frame), the corners are empty
+  expect(spriteCells('work', 0)[0]?.[0]).toEqual({ char: ' ' })
+  // each mood has its own tint: the body is not the same colour in work and in error
+  expect(spriteCells('work', 0)[4]?.[8]?.color).not.toBe(spriteCells('error', 0)[4]?.[8]?.color)
 })

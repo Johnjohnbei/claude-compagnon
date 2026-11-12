@@ -117,7 +117,7 @@ export const activeAgents = <A extends { status: string }>(list: A[]): A[] => li
 
 /** How long `✓ done` stays once the last turn or agent ended: drawn at the end, gone by the next 15 s refresh or the one after. */
 export const DONE_MS = 20_000
-export type Activity = { state: 'working'; since: number } | { state: 'done' } | null
+export type Activity = { state: 'working'; since: number } | { state: 'done'; at: number } | null
 /**
  * Whether Claude is busy: a main turn in flight (`turnStartedAt`, 0 when none) or an agent still active; `since` is the
  * earliest of their starts. Nothing in flight: `done` for DONE_MS after the last end, then nothing.
@@ -126,8 +126,30 @@ export function activityOf(turnStartedAt: number, lastTurnEnd: number, agents: A
   const starts = [...(turnStartedAt > 0 ? [turnStartedAt] : []), ...activeAgents(agents).map(a => a.firstSeen)]
   if (starts.length > 0) return { state: 'working', since: Math.min(...starts) }
   const ended = Math.max(lastTurnEnd, ...agents.map(a => a.endedAt ?? 0))
-  return ended > 0 && now - ended < DONE_MS ? { state: 'done' } : null
+  return ended > 0 && now - ended < DONE_MS ? { state: 'done', at: ended } : null
 }
+
+/** What the companion shows: the one state that sums the session up, by priority (see `moodOf`). */
+export type Mood = 'work' | 'wait' | 'done' | 'error' | 'idle'
+/** A failed turn is read for a minute after the mod recorded an error, when no turn is in flight. */
+export const FRESH_ERROR_MS = 60_000
+/** Whether the mod recorded an error during the turn in flight, or in the last minute when none runs. */
+export const hasFreshError = (errors: Array<{ at: number }>, turnStartedAt: number, now: number): boolean =>
+  errors.some(e => e.at >= (turnStartedAt > 0 ? turnStartedAt : now - FRESH_ERROR_MS))
+/**
+ * The mood: an error first (a failed agent, or the mod's own error this turn), then a session that waits for the person
+ * (a permission prompt, a collision), then work in flight, then a turn just done, else idle.
+ */
+export function moodOf(s: { isFailed: boolean; isWaiting: boolean; activity: Activity }): Mood {
+  if (s.isFailed) return 'error'
+  if (s.isWaiting) return 'wait'
+  return s.activity?.state === 'working' ? 'work' : s.activity?.state === 'done' ? 'done' : 'idle'
+}
+/** Only these two moods move: the pane is redrawn every frame while one holds, never otherwise. */
+export const isAnimated = (mood: Mood): boolean => mood === 'work' || mood === 'wait'
+
+/** `41:08`: a countdown or a duration in minutes and seconds. */
+export const clockLabel = (ms: number): string => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 /** `2m14`: an elapsed time to the second, minutes not rolled into hours. */
 export const elapsedLabel = (ms: number): string => {
   const s = Math.max(0, Math.floor(ms / 1000))

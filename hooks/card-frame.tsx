@@ -8,9 +8,10 @@ export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
 /**
  * What a value or a line says beyond "all is well": `active` (something runs), the levels that need a look, `error` (something
- * failed). Each tone has its symbol, so it reads without colour: one neutral, one accent, one amber, red for failures only.
+ * failed, `done` just finished). Each tone has its symbol, so it reads without colour: one neutral, one accent, one amber, red
+ * for failures only, green for what just finished.
  */
-export type Tone = Level | 'active' | 'error'
+export type Tone = Level | 'active' | 'error' | 'done'
 export const ACCENT = 'suggestion'
 export const TONE: Record<Tone, { mark: string; color?: string }> = {
   ok: { mark: '' },
@@ -18,9 +19,10 @@ export const TONE: Record<Tone, { mark: string; color?: string }> = {
   warn: { mark: '▲ ', color: 'warning' },
   alert: { mark: '▲ ', color: 'warning' },
   error: { mark: '✕ ', color: 'error' },
+  done: { mark: '✓ ', color: 'success' },
 }
 /** Stronger tone first: a card shows the strongest of its parts. */
-const RANK: Tone[] = ['error', 'alert', 'warn', 'active', 'ok']
+const RANK: Tone[] = ['error', 'alert', 'warn', 'active', 'done', 'ok']
 export const strongest = (...tones: Tone[]): Tone => RANK.find(t => tones.includes(t)) ?? 'ok'
 
 const GAUGE = 10
