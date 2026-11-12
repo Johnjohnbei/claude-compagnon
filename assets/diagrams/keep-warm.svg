@@ -33,6 +33,6 @@
 <text x="510.0" y="291.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">Stops early when</text>
 <text x="510.0" y="309.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">a ping rewrites the cache</text>
 <rect x="680" y="260" width="300" height="70" rx="4" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.5"/>
-<text x="830.0" y="291.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">The Model card says</text>
+<text x="830.0" y="291.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">The pane head says</text>
 <text x="830.0" y="309.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">"keep-warm stopped: &lt;why&gt;"</text>
 </svg>

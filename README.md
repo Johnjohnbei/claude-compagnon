@@ -8,35 +8,79 @@ A Claude Code mod that opens a side pane with every session, picks the model eac
 
 ## What you see
 
-![The Compagnon pane: compact rows by default, full cards with e](assets/diagrams/panel.svg)
+![The Compagnon pane: the companion and its head, what asks for you, what runs, then one grey row per subject (schematic, not a screenshot)](assets/diagrams/panel.svg)
 
-The pane opens **compact** the first time: one row per subject, each with one key value. It remembers your last choice (`e`) between sessions.
+The pane reads by priority, top to bottom: a head, the sections that have something to say, then the cards. It opens **compact** the first time (one grey row per subject) and remembers your last choice (`e`) between sessions.
 
-Rows come by importance: first what blocks or runs (`Process`), then the mod's own errors, then what can call for an action (`Context` past 70 %, a `Projects` collision), then what informs (`Model`, `7-day plan`). Unfolded, the model chain takes the `Model` slot.
+### The companion and its head
+
+A small artichoke, a nod to the Coeurdar logo, sits at the top left. Its tint says what the session is doing, and it moves only while something moves. Beside it, the head gives:
+
+- the state with its badge and time: `Claude is working · 2m14`, `Waiting for you · 0m38`, `Turn done · 4 s ago`, `Something failed`, `Resting · idle 12 min`;
+- the model routing: the session's model, `→` the tier the last request was routed to, `auto` or `auto off`, then the request's first words and which layer decided;
+- the `/goal` progress (`goal 3/5`, the current task, the time left) when there is one;
+- the cache: `cache warm 41:08` (and `keep-warm on`), amber with its key when it ends in under 5 minutes (`▲ cache cold in 3:20  k keep warm`), `▲ cache cold · rereads 118k` once cold.
+
+The companion has five moods. The mood is read from the real state, by priority:
+
+| Mood | When | Tint |
+| --- | --- | --- |
+| Failed | A failed agent, or an error of the mod during this turn (or in the last minute when no turn runs) | red |
+| Needs you | A permission or idle prompt is waiting, or another session edited a file you edited | amber, the artichoke raises a leaf |
+| Works | A turn or an agent is running | blue, it bobs and glances aside |
+| Done | A turn ended less than 20 s ago | green |
+| Resting | None of the above | grey |
+
+It needs a terminal with 24-bit colour. It is hidden when the pane is narrower than 40 columns (the head's text stays), and the `showCompanion` option turns it off.
+
+### Sections
+
+Each section is drawn only when it is not empty.
+
+| Section | Colour | What it holds |
+| --- | --- | --- |
+| `FOR YOU` | amber | A permission prompt (answer it in the chat), a collision with another session, a handoff ready (`c restart`), a cache that is cold or about to be, with `k keep warm`, a context nearly full (`h handoff`) |
+| `FAILED` | red | Agents that failed (`view` opens them), the mod's own error of this turn (`/compagnon errors` lists them) |
+| `RUNNING` | blue | The running tool and its time, agents with a moving bar and their time (a subagent sits under the agent that spawned it), background tasks (`stop`). Past 2 minutes for a tool, 10 minutes for an agent or a task, a line turns amber with `▲`; an agent waiting or stuck offers `view`. While a permission is waiting, it reads `paused on you` |
+| `DONE` | green, then grey | The agents that finished, green for 20 s after the turn, then one grey line |
+
+The API gives no progress for an agent: the bar sweeps back and forth to say it is alive, and the time stands in for a percentage.
+
+### Rows
 
 | Row | Key value | Unfolded with `e` |
 | --- | --- | --- |
-| `Process` | how many tools, tasks and agents run, then `goal 3/5` when there is one | long tools, background tasks, stuck agents, permission prompts (`stop` and `view` buttons), the goal (progress of `/goal` on the task list) |
-| `Errors` | the mod's own errors this session, `none` or `✕ 2` | the last error message |
-| `Context` | how full the context window is | gauge, tokens, handoff state |
-| `Projects` | repositories touched, `+N` followed but untouched | branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
-| `Model` | the main model | the model chain: `Advisor` (the advisor's calls; its advice is encrypted, so only the call is visible), `Model` (cache countdown, the size Claude would reread if the cache went cold, effort, load), `Decisions` (the tier the last request got and which layer chose it), `Scouts` (the agents named `search`, `grep` and `audit`, one line each; other agents are counted), `Log` (the last things the mod decided) |
-| status line | `● working · 2m14` while a turn or an agent runs, `✓ done` for 20 s after, then agents, advisor calls, decisions and cost | the same line, under the chain |
-| `7-day plan` | your weekly plan usage | 7-day curve, reset time |
+| `Model` | the main model, `auto`, decisions, advisor calls, session cost | the model chain: `Advisor` (the advisor's calls; its advice is encrypted, so only the call is visible), `Model` (cache countdown, the size Claude would reread if the cache went cold, effort, load), `Decisions` (the tier the last request got and which layer chose it), `Scouts` (the agents named `search`, `grep` and `audit`, one line each; other agents are counted), `Log` (the last things the mod decided), then the status line |
+| `Context` | how full the context window is, and the tokens | gauge, tokens, handoff being written |
+| `7-day plan` | your weekly plan usage, the 7-day curve and when it resets | the curve and the reset time in a card |
+| `Projects` | repositories touched, `+N` followed but untouched, the first one's branch and changes | every repository: branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
+| `Errors` | the mod's own errors this session, `none` or `✕ 2`, then the last message | the last error message |
 
-Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents.
+Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents. When a permission is waiting, the band says `? waiting for you` in amber in place of the agents.
 
-Colours are kept to four, each with its symbol so a state reads without colour: neutral text and borders when all is well, the accent with `●` for what is active, amber with `▲` for what needs a look, red with `✕` for what failed. The band and `/compagnon errors` count the mod's own errors with `✕`.
+Colours carry one meaning each, and each has its symbol so a state reads without colour:
+
+| Colour | Meaning |
+| --- | --- |
+| amber, `?` or `▲` | needs you |
+| blue, moving | it runs |
+| red, `✕` | it failed |
+| green `✓`, then grey | done: green for 20 s, then one grey line |
+| grey | nothing to do |
+
+The band and `/compagnon errors` count the mod's own errors with `✕`.
 
 When to act:
 
 | You see | Do |
 | --- | --- |
-| `Process ▲` or `✕`: unfolded, a tool, task or agent marked `▲` or `✕` | Press `e` and check it. `stop` ends a background task, `view` opens an agent. |
-| `Errors ✕ 2`, or `✕ 2` in the band | The mod hit an error. Run `/compagnon errors`. |
-| `Context ▲ 72%` (70 % or more), unfolded: `▲ nearly full: /clear or handoff (h)` | Press `h`, then `c` when the handoff is ready. |
-| `Projects ▲ 1 · collision`, unfolded: `▲ file · "session"` | Another open session edited the same file. Coordinate before going on. |
-| `Model ▲ Opus 5.5 · cold cache`, unfolded: `▲ cold cache · rereads 120k` | Your next message rereads the whole context. Consider a handoff or a compaction first. |
+| `FOR YOU` with `? permission` | Answer the permission in the chat. |
+| `FOR YOU` with `▲ collision`, or `Projects ▲ 1 · collision` | Another open session edited the same file. Coordinate before going on. |
+| `FOR YOU` with `● handoff ready` | Press `c` to restart from the handoff. |
+| `▲ cache cold in 3:20`, or `FOR YOU` with `▲ cache` | Your next message rereads the whole context. Press `k` to keep it warm, or consider a handoff or a compaction first. |
+| `FOR YOU` with `▲ context 74% full`, or `Context ▲ 74%` (70 % or more) | Press `h`, then `c` when the handoff is ready. |
+| `FAILED`, `Errors ✕ 2`, or `✕ 2` in the band | `view` opens a failed agent. Run `/compagnon errors` for the mod's own errors. |
+| `RUNNING` with a line marked `▲` | `view` opens a stuck agent, `stop` ends a background task. |
 
 ## Quick start
 
@@ -96,7 +140,7 @@ It stops at the chosen time, when a ping gets no answer, or when a ping rewrites
 ![Handoff: h, Claude writes the file, c restarts from it](assets/diagrams/handoff.svg)
 
 Use it when the context is nearly full or the session drifted. Press `h` or run `/compagnon handoff`.
-Claude writes the session state to a Markdown file. When the file is on disk, a toast says `Handoff ready` and the keys line shows `restart from handoff`.
+Claude writes the session state to a Markdown file. When the file is on disk, a toast says `Handoff ready`, `FOR YOU` shows `● handoff ready` and the keys line shows `restart from handoff`.
 Press `c`: the session is cleared and the fresh one starts by reading the file.
 
 ### Collision guard
@@ -112,7 +156,7 @@ Claude is told why the edit did not run: on `Cancel` it leaves the file alone an
 ![Errors: recorded, counted in the band, listed by a command](assets/diagrams/errors.svg)
 
 When one of the mod's own hooks fails, your prompt or tool call still goes through, and the failure is recorded.
-The band shows `✕ 2`, the pane's `Errors` row shows `✕ 2`, and unfolded (`e`) `✕ 2 errors, last: <message>`.
+The band shows `✕ 2`, the pane's `Errors` row shows `✕ 2` and the last message, `FAILED` names the error of the current turn, and unfolded (`e`) the card reads `✕ 2 errors, last: <message>`.
 Run `/compagnon errors` to read the list with dates and times.
 
 ## Commands
@@ -136,7 +180,7 @@ Keeps the prompt cache warm for the given number of hours (2 when you give none)
 /compagnon keepwarm off
 ```
 
-Reply: `Cache kept warm for 3 h: one ping before each expiry, stopped if a ping rewrites the cache instead of reading it.` While the cache is warm, the `Model` card adds `kept warm` to its cache line.
+Reply: `Cache kept warm for 3 h: one ping before each expiry, stopped if a ping rewrites the cache instead of reading it.` While the cache is kept warm, the head's cache line adds `keep-warm on`.
 
 ### `/compagnon handoff`
 
@@ -198,6 +242,7 @@ Options declared in `.claude-plugin/plugin.json` (`userConfig`):
 | --- | --- | --- |
 | `projects` | empty | Absolute paths of the git repositories the `Projects` card follows, separated by `;`. Empty: the session's project only. |
 | `showBand` | `true` | The one-line band above the prompt. Off: the pane only. |
+| `showCompanion` | `true` | The artichoke beside the pane's head. Off: the head's text only. It is hidden under 40 columns whatever the option. |
 | `classify` | `true` | The Haiku classifier for requests the keywords do not recognise. Off: keywords only, the rest stays on Opus. |
 | `coldGuardTokens` | `150000` | Context size above which a send on a cold cache asks first. Accepts `150000` or `150k`. `0` turns the guard off. |
 
@@ -235,7 +280,7 @@ That is why the guards exist. Routing switches the model only when the cache is 
 - The collision guard only sees sessions where the mod runs.
 - After a keep-warm ping, the status line's cache figures lag behind: the mod trusts the ping until the next expiry.
 - The model switch sends the tier name (`haiku`, `sonnet`, `opus`, `fable`) and lets the engine pick the version. No model id is written in the mod.
-- The agent cards show no percentage: the API gives none, so elapsed time stands in.
+- Agents show no percentage: the API gives none, so a moving bar and the elapsed time stand in.
 
 ### Adding a new model tier
 
@@ -264,5 +309,7 @@ No npm dependency: `validate` and `test` come with the CLI. The engine writes it
 ## Credits and license
 
 Built by [Coeurdar](https://coeurdar.com). The cold cache guard, keep warm and handoff are adapted from Cache Keeper, the collision guard from Collision Guard and the goal line from Goal Meter, all in [inematds/5-mods](https://github.com/inematds/5-mods) (MIT).
+
+The idea of a character that tells you when the agent needs you was inspired by Coucou (MIT). Its code is not used here, and its character and name belong to its author: the artichoke is original, a nod to the Coeurdar logo.
 
 MIT license.
