@@ -16,7 +16,7 @@ The pane reads by priority, top to bottom: a head, the sections that have someth
 
 A small artichoke, a nod to the Coeurdar logo, sits at the top left. Its tint says what the session is doing, and it moves only while something moves. Beside it, the head gives:
 
-- the state with its badge and time: `Claude is working · 2m14`, `Waiting for you · 0m38`, `Turn done · 4 s ago`, `Something failed`, `Resting · idle 12 min`;
+- the state with its badge and time: `Claude is working · 2m14`, `Waiting for you · 0m38`, `Turn done · 4 s ago`, `Something failed`, `Turn ended: API error` or `Turn ended: refused`, `Interrupted · 3 s ago`, `Resting · idle 12 min`;
 - the model routing: the session's model, `→` the tier the last request was routed to, `auto` or `auto off`, then the request's first words and which layer decided;
 - the `/goal` progress (`goal 3/5`, the current task, the time left) when there is one;
 - the cache: `cache warm 41:08` (and `keep-warm on`), amber with its key when it ends in under 5 minutes (`▲ cache cold in 3:20  k keep warm`), `▲ cache cold · rereads 118k` once cold.
@@ -25,10 +25,10 @@ The companion has five moods. The mood is read from the real state, by priority:
 
 | Mood | When | Tint |
 | --- | --- | --- |
-| Failed | A failed agent, or an error of the mod during this turn (or in the last minute when no turn runs) | red |
-| Needs you | A permission or idle prompt is waiting, or another session edited a file you edited | amber, the artichoke raises a leaf |
-| Works | A turn or an agent is running | blue, it bobs and glances aside |
-| Done | A turn ended less than 20 s ago | green |
+| Failed | A failed agent or an error of the mod during this turn (or in the last 2 minutes when no turn runs), or a turn that ended in an API error or a refusal. A failure older than that stays listed in `FAILED` but the face follows the rest | red |
+| Needs you | A permission prompt is waiting, or a collision question is open (counted from the question, not from the other session's edit). An idle notice is rest, and a collision you answered `Proceed` to waits for no one | amber, the artichoke raises a leaf |
+| Works | A turn or an agent is running (a teammate that is idle or pending is not) | blue, it bobs and glances aside |
+| Done | A turn ended in an answer less than 20 s ago. An interrupted turn reads `Interrupted` for 20 s, then rests | green |
 | Resting | None of the above | grey |
 
 It needs a terminal with 24-bit colour. It is hidden when the pane is narrower than 40 columns (the head's text stays), and the `showCompanion` option turns it off.
@@ -39,7 +39,7 @@ Each section is drawn only when it is not empty.
 
 | Section | Colour | What it holds |
 | --- | --- | --- |
-| `FOR YOU` | amber | A permission prompt (answer it in the chat), a collision with another session, a handoff ready (`c restart`), a cache that is cold or about to be, with `k keep warm`, a context nearly full (`h handoff`) |
+| `FOR YOU` | amber | A permission prompt (answer it in the chat; it clears when the turn ends), a collision with another session, a handoff ready (`c restart`), a cache that is cold or about to be, with `k keep warm`, a context nearly full (`h handoff`) |
 | `FAILED` | red | Agents that failed (`view` opens them), the mod's own error of this turn (`/compagnon errors` lists them) |
 | `RUNNING` | blue | The running tool and its time, agents with a moving bar and their time (a subagent sits under the agent that spawned it), background tasks (`stop`). Past 2 minutes for a tool, 10 minutes for an agent or a task, a line turns amber with `▲`; an agent waiting or stuck offers `view`. While a permission is waiting, it reads `paused on you` |
 | `DONE` | green, then grey | The agents that finished, green for 20 s after the turn, then one grey line |
@@ -56,7 +56,7 @@ The API gives no progress for an agent: the bar sweeps back and forth to say it 
 | `Projects` | repositories touched, `+N` followed but untouched, the first one's branch and changes | every repository: branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
 | `Errors` | the mod's own errors this session, `none` or `✕ 2`, then the last message | the last error message |
 
-Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents. When a permission is waiting, the band says `? waiting for you` in amber in place of the agents.
+Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents. When a permission prompt is waiting, the band says `? waiting for you` in amber in place of the agents; an idle notice does not.
 
 Colours carry one meaning each, and each has its symbol so a state reads without colour:
 
@@ -275,6 +275,9 @@ That is why the guards exist. Routing switches the model only when the cache is 
 
 ## Limits
 
+- The pane redraws about twice a second while something is in flight or a permission waits, and not at all at rest.
+- Narrow panes (under 44 columns) keep each section row on one line: the name column and the key hints give way, the `view` and `stop` buttons stay.
+- The companion needs 24-bit colour, and the mod cannot tell whether the terminal has it: the engine's types expose no colour depth, `NO_COLOR` or theme capability (a search of `.claude-plugin/types/claude-code/index.d.ts` for `colorDepth`, `colorLevel`, `supportsColor`, `NO_COLOR`, `COLORTERM` and `truecolor` finds none). On a terminal without it the faces stay distinguishable by shape (a raised leaf waits, glancing eyes work, a closed smile is done, a wavy mouth fails, half-closed eyes rest), and `showCompanion` turns the drawing off.
 - Keyword routing is approximate. The classifier covers what keywords miss; without it (option off, 3 s timeout, failure), the request stays on Opus.
 - The plan is published in percentages only. The 7-day curve counts only days when a session ran.
 - The collision guard only sees sessions where the mod runs.
