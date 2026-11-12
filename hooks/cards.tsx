@@ -4,7 +4,9 @@
 import type { Elements, RenderChildren } from 'claude-code'
 
 import type { AdvisorStat, AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Goal, Handoff, KeepWarm, Level, LogEntry, LogKind, ParallelSummary, Pin, RepoState, RouteRecord, RunningTool, SeenModels, TaskRow, TurnCost, Usage, Waiting } from '../types'
-import { SOURCE_NAME, TIER_NAME, TIERS_STRONGEST_FIRST, ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
+import { TIER_NAME, TIERS_STRONGEST_FIRST, modelLabel, tierOf } from './tiers'
+import { SOURCE_NAME } from './request-routing'
+import { ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, type DailySamples } from './logic'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 

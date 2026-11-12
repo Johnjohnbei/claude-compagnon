@@ -1,101 +1,9 @@
-// Pure logic of the companion pane: no `$`, so the tests run it directly.
-import type { Advice, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Effort, Ledger, Level, LogEntry, ParallelSummary, RepoState, RouteRecord, SeenModels, Source, TaskRow, Tier, ToolSpan, TurnCost } from '../types'
-
-/**
- * The model tiers, weakest first: a tier's index is its rank. Everything about a tier derives from this table (ranks, display
- * names, detection in a model id, classifier labels and efforts), so a new tier is one row here plus its id in the `Tier`
- * union of types/index.d.ts (the contract file may not import, so the union cannot be derived; the typecheck ties the two).
- * `effort` is the effort a classifier answer (and the default route) gives; `label` carries the criteria the classifier reads.
- */
-export const TIERS = [
-  { id: 'haiku', name: 'Haiku', effort: 'low', label: 'question simple de recherche ou de lecture (où, liste, montre, combien)' },
-  { id: 'sonnet', name: 'Sonnet', effort: 'medium', label: 'modification courante et précise (corriger, ajouter, renommer, texte, test, commit)' },
-  { id: 'opus', name: 'Opus', effort: 'medium', label: 'débogage, nouvelle fonctionnalité, refonte ou plan de travail' },
-  { id: 'fable', name: 'Fable', effort: 'xhigh', label: "décision d'architecture, cause racine ou arbitrage entre approches" },
-] as const satisfies ReadonlyArray<{ id: Tier; name: string; effort: Effort; label: string }>
-
-// A Tier of the contract with no row here fails the typecheck (an unknown id already fails the `satisfies` above).
-const everyTierHasARow: [Exclude<Tier, (typeof TIERS)[number]['id']>] extends [never] ? true : never = true
-void everyTierHasARow
-
-/** The tier an unrecognised request or model id falls back on. */
-export const DEFAULT_TIER: Tier = 'opus'
-
-const rankOf = (tier: Tier): number => TIERS.findIndex(t => t.id === tier)
-const byTier = <V>(pick: (t: (typeof TIERS)[number]) => V) => Object.fromEntries(TIERS.map(t => [t.id, pick(t)])) as Record<Tier, V>
-
-/** Tier ids strongest first: the order a model id is searched in, and the order the card lists the releases seen. */
-export const TIERS_STRONGEST_FIRST: Tier[] = TIERS.map(t => t.id).reverse()
-
-// The pin sends the tier name itself through `turn.step` (`model: 'opus'`): the engine resolves the alias, and
-// ANTHROPIC_DEFAULT_*_MODEL repoints it. No model id and no version is written in this mod, so a release changes nothing here.
-
-/** Tier names as shown. A version is never written here: it is read from the id the engine reports (`modelLabel`). */
-export const TIER_NAME: Record<Tier, string> = byTier(t => t.name)
-
-/** "5.5" out of "claude-opus-5-5" or "claude-sonnet-4-5-20250929"; null for an alias or an id with no version. */
-export const versionOf = (model: string): string | null =>
-  model.match(/-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?(?:\[1m\])?$/)?.slice(1).filter(Boolean).join('.') || null
-
-/**
- * "Opus 5.5" for a resolved id, "Opus" for an alias. An id that names no tier is shown as it is: dressing it as the default
- * tier would print "Opus 9.9" for a model that is not Opus.
- */
-export const modelLabel = (model: string): string => {
-  const tier = tierIn(model)
-  if (!tier) return model || TIER_NAME[DEFAULT_TIER]
-  const version = versionOf(model)
-  return version ? `${TIER_NAME[tier]} ${version}` : TIER_NAME[tier]
-}
-
-/** Engine version from which `turn.step` accepts an alias; before it the alias reaches the API as is and the request fails. */
-const ALIAS_MIN_VERSION = [2, 1, 309]
-
-/**
- * Whether the engine accepts an alias in `turn.step`. `version` is what `$.session.version()` returns (a string or an
- * object, `{ version, base, builtAt }` on 2.1.318): the first x.y.z found in it is read. When no version can be read the
- * answer is false, so a doubt switches the automatic pin off and never breaks a turn.
- */
-export function supportsAlias(version: unknown): boolean {
-  const found = (typeof version === 'string' ? version : JSON.stringify(version) ?? '').match(/(\d+)\.(\d+)\.(\d+)/)
-  if (!found) return false
-  const have = found.slice(1).map(Number)
-  const diff = ALIAS_MIN_VERSION.findIndex((min, i) => have[i] !== min)
-  return diff === -1 || (have[diff] ?? 0) > (ALIAS_MIN_VERSION[diff] ?? 0)
-}
-
-// First match wins, strongest need first. Sources: Anthropic model-config (Fable for ambiguous problems and
-// architecture, Opus for complex reasoning, Sonnet for daily coding, Haiku for simple tasks) and the former
-// rules of an earlier router kept here: upgrade freely, downgrade only on a small context, never route subagents.
-// ponytail: keyword rules, zero token (user choice 2026-11-05); what they miss, or only the weak edit rule catches, goes to the Haiku classifier (CLASSIFY_LABELS).
-// The debugging rule is strong (never second-guessed), so a substring hit there costs an Opus turn: « erreur de frappe » is a typo
-// (its twin « faute de frappe » already went to the edit rule), and « plante » must start a word (« implante » is no crash).
-export const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
-  { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
-  { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|\bplante|erreur(?!s? de frappe)/i },
-  // A request that opens with a lookup word or verb is a lookup, whatever it names (« liste les fichiers de tests », « cartographie ce dépôt »): above the edit and feature rules,
-  // below the debugging and architecture ones (« où est le bug » stays a bug). JS \b is ASCII-only: it never matches after « où ».
-  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi|cartograph\w*|trouve|recense|repère|dresse la liste|(?:fais|donne)(?:-moi)? la liste|qui appelle)(?=[\s,?:-]|$)/i },
-  { tier: 'opus', effort: 'medium', need: 'Fonctionnalité ou refonte', re: /refactor|refonte|fonctionnalit|feature|implément|\bmod\b|composant|migration|\bplan\b|maquette/i },
-  { tier: 'sonnet', effort: 'medium', need: 'Édition courante', re: /corrige|ajoute|modifie|texte|copie|tradui|\bdoc|tests?\b|lint|renomme|commit|push/i },
-]
+// Pure logic of the companion pane: no `$`, so the tests run it directly. The tiers, the request routing and the
+// load report live in tiers.ts, request-routing.ts and load-report.ts.
+import type { CacheInfo, CacheVerdict, Collision, Ledger, Level, LogEntry, ParallelSummary, RepoState, TaskRow, ToolSpan, TurnCost } from '../types'
 
 /** The cache is per model: below this, dropping to a cheaper model still pays. */
 export const CACHE_KEEP_TOKENS = 40_000
-
-/** The tier a model id names (`claude-opus-5-5`, `sonnet`), or undefined when it names none. */
-const tierIn = (model: string): Tier | undefined => TIERS_STRONGEST_FIRST.find(t => model.toLowerCase().includes(t))
-
-export const tierOf = (model: string): Tier => tierIn(model) ?? DEFAULT_TIER
-
-/** The model a request needs; null for a follow-up ("ok", "continue") or a slash command, which keep the model. */
-export function advise(text: string): Advice | null {
-  const ask = text.trim()
-  if (ask.length < 20 || ask.startsWith('/')) return null
-  const rule = RULES.find(r => r.re.test(ask))
-  const found = rule ?? { tier: DEFAULT_TIER, effort: CLASSIFIED_EFFORT[DEFAULT_TIER], need: 'Demande générale' }
-  return { tier: found.tier, effort: found.effort, need: found.need, reason: `${found.need} : ${TIER_NAME[found.tier]}, effort ${found.effort}`, source: rule ? 'keywords' : 'default' }
-}
 
 /**
  * Whether switching the main model now forfeits nothing. A prompt cache belongs to one model and cannot be copied
@@ -201,34 +109,6 @@ export const handoffPrompt = (path: string): string =>
 export const continuationPrompt = (path: string, pending: string): string =>
   `Reprise après handoff : lis ${path} en entier, puis continue le travail là où il s'est arrêté.${pending ? `\n\nMessage en attente : ${pending}` : ''}`
 
-/**
- * The automatic route of a request: switch the main loop when it is free, otherwise keep the warm cache and hand
- * the work to a subagent on the right model (a subagent starts from a fresh context, so the main cache is untouched).
- */
-export function route(advice: Advice, current: Tier, verdict: CacheVerdict): Decision {
-  if (advice.tier === current) return { action: 'keep', tier: current, effort: advice.effort, why: advice.reason }
-  if (verdict.isFree) return { action: 'switch', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : bascule vers ${TIER_NAME[advice.tier]}` }
-  return { action: 'delegate', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : ${TIER_NAME[current]} garde la main, travail confié à un sous-agent ${TIER_NAME[advice.tier]}` }
-}
-
-/** A switch the engine cannot take (no alias support) becomes a delegation: the work still reaches the right model. */
-export const withoutPin = (d: Decision, current: Tier): Decision =>
-  d.action === 'switch' ? { ...d, action: 'delegate', why: `${TIER_NAME[current]} garde la main (bascule indisponible sur ce moteur), travail confié à un sous-agent ${TIER_NAME[d.tier]}` } : d
-
-/**
- * The tier a delegation imposes on a subagent. Only a general-purpose subagent whose call named no model gets it: a model
- * the call gave stays (Claude may have a reason), a named agent keeps the model its definition gives (the Haiku scouts),
- * and a fork, a teammate or a resumed run is left alone.
- */
-export function spawnModel(d: Decision | null, e: { subagentType: string; model?: string; fork?: boolean; isTeammate?: boolean; resume?: unknown }): Tier | undefined {
-  if (!d || d.action !== 'delegate' || e.model || e.fork || e.isTeammate || e.resume) return undefined
-  return e.subagentType === 'general-purpose' ? d.tier : undefined
-}
-
-/** Appended to the user's message (never to the system prompt, which would break the cache it protects). */
-export const delegationHint = (d: Decision, need: string): string =>
-  `\n\n[compagnon] Besoin détecté : ${need.toLowerCase()}. Pour ne pas perdre le cache de ce contexte, garde le modèle actuel pour piloter et confie l'exécution à un sous-agent avec model: "${d.tier}", en lui donnant un brief complet (fichiers, objectif, critères). Si la tâche est trop courte pour valoir un sous-agent, fais-la directement.`
-
 /** Usage thresholds used by ccusage and most status lines: green under 70 %, red from 90 %. */
 export const levelOf = (pct: number): Level => (pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok')
 
@@ -328,37 +208,6 @@ export function costSummary(turns: TurnCost[]): { turns: number; totalUsd: numbe
   return { turns: turns.length, totalUsd, avgUsd: turns.length ? totalUsd / turns.length : 0, advisorTurns: withAdvisor.length, advisorUsd, advisorShare: totalUsd > 0 ? advisorUsd / totalUsd : 0 }
 }
 
-/** The categories the context really holds (what is loaded, not free space, the compaction buffer or deferred tools), largest first. */
-export const contextParts = (categories: Array<{ name: string; tokens: number; kind?: string }>): CtxPart[] =>
-  categories.filter(c => c.kind === 'used' && c.tokens > 0).map(c => ({ name: c.name, tokens: c.tokens })).sort((a, b) => b.tokens - a.tokens)
-
-/** Negative when `a` is an older release than `b`, 0 for the same release (a `[1m]` or dated spelling included). */
-const compareVersions = (a: string, b: string): number => {
-  const pa = (versionOf(a) ?? '').split('.').filter(Boolean).map(Number)
-  const pb = (versionOf(b) ?? '').split('.').filter(Boolean).map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (d) return d
-  }
-  return 0
-}
-
-/**
- * Learns the id behind a tier from a model id the engine reported. `changed` is set when that tier already had an
- * older release: the alias now resolves to a newer one. Releases only move forward, so an older id (the engine fell
- * back for a step, or another open window's alias still resolves to the previous release: both seen on 2026-11-07,
- * `opus` giving Opus 5 and Opus 5.5 in parallel sessions) or the same release spelled otherwise changes nothing and
- * the remembered id stands. An id that names no tier teaches nothing; an unseen tier is learned silently.
- */
-export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; changed: { tier: Tier; from: string; to: string } | null } {
-  const tier = tierIn(model)
-  if (!tier || seen[tier] === model) return { seen, changed: null }
-  const from = seen[tier]
-  if (!from || !versionOf(from)) return { seen: { ...seen, [tier]: model }, changed: null }
-  if (compareVersions(model, from) <= 0) return { seen, changed: null }
-  return { seen: { ...seen, [tier]: model }, changed: { tier, from, to: model } }
-}
-
 /**
  * A token count option ("150000", "150k", "1,5 k", "150 000"); null when it reads as no count, so the caller keeps its
  * default. `Number('1.5k'.replace(/k$/, '000'))` used to read « 1.5k » as 1.5 tokens, a guard that asked before every send.
@@ -371,126 +220,6 @@ export function tokensOption(value: unknown): number | null {
 
 /** A boolean option, whichever way the engine hands it (a boolean or the text "true"/"false"): on unless it says off. */
 export const isOptionOn = (value: unknown): boolean => value !== false && String(value ?? '').trim().toLowerCase() !== 'false'
-
-/**
- * The classifier layer: what the keyword rules did not recognise goes to `$.model.classify` with one label per tier.
- * The label carries the criteria, so the model reads what each tier is for. Measured on 30 synthetic French requests:
- * 29/30 against 22/30 for the keywords alone, 10/10 against 3/10 on the ones without a keyword.
- */
-export const CLASSIFY_LABELS: Record<Tier, string> = byTier(t => t.label)
-export const CLASSIFY_TIMEOUT_MS = 3000
-const CLASSIFIED_EFFORT: Record<Tier, Effort> = byTier(t => t.effort)
-
-export const tierOfLabel = (label: string): Tier | undefined => TIERS.find(t => t.label === label)?.id
-
-/** The advice a classifier answer makes. */
-export const adviseClassified = (tier: Tier): Advice => ({
-  tier,
-  effort: CLASSIFIED_EFFORT[tier],
-  need: 'Classé par le modèle',
-  reason: `Classé par le modèle : ${TIER_NAME[tier]}, effort ${CLASSIFIED_EFFORT[tier]}`,
-  source: 'classifier',
-})
-
-/** The keyword rule whose hit is the weakest signal (« ajoute », « texte », « commit » appear in features and decisions too). */
-const EDIT_NEED = 'Édition courante'
-
-/** Whether the classifier is worth a call: nothing recognised the request, or only the weak edit rule did. */
-export const needsClassifier = (advice: Advice): boolean => advice.source === 'default' || advice.need === EDIT_NEED
-
-/**
- * The advice once the classifier has answered (or not). An unrecognised request takes the classifier's tier; a weak edit-rule hit
- * only goes UP (a classifier saying "feature" or "architecture" overrides « ajoute »), never down. Measured on 37 synthetic French
- * requests: 33/37 with the keywords then the classifier for what they miss, 35/37 when it may also raise the edit rule.
- */
-export function settle(keyword: Advice, classified: Tier | undefined): Advice {
-  if (!classified) return keyword
-  if (keyword.source === 'default') return adviseClassified(classified)
-  return rankOf(classified) > rankOf(keyword.tier) ? adviseClassified(classified) : keyword
-}
-
-export const SOURCE_NAME: Record<Source, string> = { keywords: 'mots-clés', classifier: 'classifieur', default: 'défaut' }
-
-/** The routing decisions kept for review: the last two hundred. */
-export const ROUTE_LOG_MAX = 200
-export const routeRecord = (at: number, text: string, need: Advice, action: RouteRecord['action']): RouteRecord => ({
-  at,
-  source: need.source,
-  tier: need.tier,
-  effort: need.effort,
-  action,
-  head: text.replace(/\s+/g, ' ').trim().slice(0, 80),
-})
-export const pushRoute = (list: RouteRecord[], record: RouteRecord): RouteRecord[] => [...list, record].slice(-ROUTE_LOG_MAX)
-
-/** The review the `/compagnon decisions` command prints: the layer counts, then the last lines. */
-export function routeReport(list: RouteRecord[], last = 20): string {
-  if (list.length === 0) return 'Aucune décision enregistrée pour l’instant.'
-  const count = (s: Source) => list.filter(r => r.source === s).length
-  const lines = list.slice(-last).map(r => `${new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}  ${SOURCE_NAME[r.source].padEnd(10)} ${TIER_NAME[r.tier].padEnd(6)} ${r.action.padEnd(8)} ${r.head}`)
-  return [`${list.length} décision${list.length > 1 ? 's' : ''} : mots-clés ${count('keywords')}, classifieur ${count('classifier')}, défaut ${count('default')}.`, ...lines].join('\n')
-}
-
-/** A memory file from this size, a plugin or MCP server from the smaller one, earns a pointer in the load report. */
-const HEAVY_FILE = 8000
-const HEAVY_SOURCE = 1500
-const kTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1).replace('.', ',')} k` : `${n}`)
-const sumTokens = (list: Array<{ tokens: number }>): number => list.reduce((s, x) => s + x.tokens, 0)
-const asList = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? value.filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null) : [])
-const withTokens = (list: Array<Record<string, unknown>>) => list.filter(x => typeof x.tokens === 'number' && x.tokens > 0) as Array<Record<string, unknown> & { tokens: number }>
-
-/** Sums tokens by a label and sorts, largest first. */
-function groupTokens(list: Array<Record<string, unknown> & { tokens: number }>, label: (x: Record<string, unknown>) => string): Array<{ label: string; tokens: number }> {
-  const by = new Map<string, number>()
-  for (const x of list) by.set(label(x), (by.get(label(x)) ?? 0) + x.tokens)
-  return [...by].map(([l, tokens]) => ({ label: l, tokens })).sort((a, b) => b.tokens - a.tokens)
-}
-
-/**
- * What the session loads before the first word, source by source, from `$.session.usage({ breakdown: 'full' }).context.breakdown`:
- * memory files by path, skills by plugin, agents, slash commands, MCP tools by server. Shapes read on 2.1.318 (memoryFiles, agents,
- * skills.skillFrontmatter, slashCommands); mcpTools was empty there, so its entries are read tolerantly (server or name, tokens).
- */
-export function chargeReport(breakdown: unknown): string {
-  const b = (typeof breakdown === 'object' && breakdown !== null ? breakdown : {}) as Record<string, unknown>
-  const cats = asList(b.categories) as Array<{ name?: string; tokens?: number; kind?: string }>
-  const fixed = cats.filter(c => c.kind === 'used' && c.name !== 'Messages' && typeof c.tokens === 'number')
-  const messages = cats.find(c => c.name === 'Messages')
-  if (cats.length === 0) return 'Aucune mesure : le moteur n’a pas renvoyé de détail de contexte.'
-  const lines: string[] = [`Charge au démarrage : ${kTokens(fixed.reduce((s, c) => s + (c.tokens ?? 0), 0))} jetons${messages?.tokens ? `, plus la conversation ${kTokens(messages.tokens)} jetons` : ''}.`]
-  lines.push(`Par catégorie : ${fixed.map(c => `${c.name} ${kTokens(c.tokens ?? 0)}`).join(' · ')}.`)
-  const memory = withTokens(asList(b.memoryFiles)).sort((a, c) => c.tokens - a.tokens)
-  if (memory.length > 0) {
-    lines.push('', `Mémoire (${memory.length} fichiers, ${kTokens(sumTokens(memory))}) :`)
-    for (const m of memory.slice(0, 8)) lines.push(`  ${kTokens(m.tokens).padStart(7)}  ${String(m.type ?? '').padEnd(8)} ${String(m.path ?? '').slice(-70)}`)
-  }
-  const skills = (b.skills ?? {}) as { totalSkills?: number; tokens?: number; skillFrontmatter?: unknown }
-  const skillRows = withTokens(asList(skills.skillFrontmatter))
-  if (skillRows.length > 0) {
-    const bySource = groupTokens(skillRows, x => String(x.pluginName ?? x.source ?? 'autre'))
-    lines.push('', `Skills (${skills.totalSkills ?? skillRows.length}, ${kTokens(skills.tokens ?? sumTokens(skillRows))}), par origine : ${bySource.slice(0, 6).map(s => `${s.label} ${kTokens(s.tokens)}`).join(' · ')}.`)
-  }
-  const agents = withTokens(asList(b.agents))
-  if (agents.length > 0) {
-    const bySource = groupTokens(agents, x => String(x.source ?? 'autre'))
-    lines.push('', `Agents (${agents.length}, ${kTokens(sumTokens(agents))}), par origine : ${bySource.map(s => `${s.label} ${kTokens(s.tokens)}`).join(' · ')}.`)
-  }
-  const mcp = withTokens(asList(b.mcpTools))
-  if (mcp.length > 0) {
-    const byServer = groupTokens(mcp, x => String(x.server ?? x.serverName ?? x.name ?? 'serveur inconnu'))
-    lines.push('', `Outils MCP (${mcp.length}, ${kTokens(sumTokens(mcp))}), par serveur : ${byServer.slice(0, 8).map(s => `${s.label} ${kTokens(s.tokens)}`).join(' · ')}.`)
-  }
-  const commands = (b.slashCommands ?? {}) as { totalCommands?: number; tokens?: number }
-  if (commands.tokens) lines.push('', `Commandes : ${commands.totalCommands ?? '?'} (${kTokens(commands.tokens)}).`)
-  // What to do about it: only sources heavy enough to matter, one line each.
-  const hints: string[] = []
-  for (const m of memory.filter(f => f.tokens >= HEAVY_FILE)) hints.push(`${String(m.path ?? '').split(/[\\/]/).slice(-2).join('/')} pèse ${kTokens(m.tokens)} : déplacer ses sections historiques (post-mortems, Origine, Why) dans un CLAUDE.md de sous-dossier ou une règle à \`paths:\`, chargés à la demande.`)
-  for (const s of groupTokens(skillRows.filter(r => typeof r.pluginName === 'string'), x => String(x.pluginName)).filter(s => s.tokens >= HEAVY_SOURCE)) hints.push(`Plugin ${s.label} : ${kTokens(s.tokens)} de skills au démarrage ; à désactiver (/plugin) s’il ne sert pas ici.`)
-  for (const s of groupTokens(agents.filter(a => a.source === 'plugin'), () => 'agents de plugins').filter(s => s.tokens >= HEAVY_SOURCE)) hints.push(`${s.label[0]?.toUpperCase()}${s.label.slice(1)} : ${kTokens(s.tokens)} ; à désactiver avec leur plugin s’ils ne servent pas ici.`)
-  for (const s of groupTokens(mcp, x => String(x.server ?? x.serverName ?? x.name ?? 'serveur inconnu')).filter(s => s.tokens >= HEAVY_SOURCE)) hints.push(`Serveur MCP ${s.label} : ${kTokens(s.tokens)} ; à déconnecter s’il ne sert pas dans ce projet.`)
-  if (hints.length > 0) lines.push('', 'Pistes :', ...hints.map(h => `  - ${h}`))
-  return lines.join('\n')
-}
 
 /**
  * The `prompt_cache` object the status line receives, as `~/.claude/hooks/statusline.js` (repo claude-config) writes it into
@@ -510,4 +239,3 @@ export function cacheFromRelay(raw: unknown): CacheInfo | null {
     hitRatio: num(r.hit_ratio),
   }
 }
-

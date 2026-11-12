@@ -1,7 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger, LogEntry } from '../types'
-import { advise, adviseClassified, asLedger, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, DEFAULT_TIER, RULES, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, tokensOption, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLabel, releaseOf, versionOf } from './tiers'
+import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
+import { chargeReport, contextParts } from './load-report'
+import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushLog, recordSample, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({

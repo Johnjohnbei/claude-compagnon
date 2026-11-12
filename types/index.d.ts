@@ -1,6 +1,6 @@
 /**
  * A model tier. The contract must stay self-contained (`claude plugin validate` refuses an import here), so the ids are
- * written here once and everything else about a tier lives in `TIERS` (hooks/logic.ts); the typecheck refuses an id that
+ * written here once and everything else about a tier lives in `TIERS` (hooks/tiers.ts); the typecheck refuses an id that
  * is in one and not the other.
  */
 export type Tier = 'fable' | 'opus' | 'sonnet' | 'haiku'

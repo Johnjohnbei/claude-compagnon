@@ -6,7 +6,10 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, BackgroundTask, CacheInfo, CacheVerdict, LogKind, RouteRecord, SeenModels, TaskRow, Tier, Usage } from '../types'
 import { Band, ContextCard, GoalCard, KeysLine, ParallelCard, PlanCard, ProcessCard, ProjectsCard, Schema } from './cards'
 import { askHandoff, checkHandoff, continueFromHandoff, guardEdit, initGuards, keepWarmTick, nameSession, noteTurnStart, refreshCollisions, renewSession, setKeepWarm, writeLedger } from './guards'
-import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, TIER_NAME, advise, cacheFromRelay, cacheState, chargeReport, contextParts, costDelta, dayKey, delegationHint, isOptionOn, modelLabel, needsColdGuard, needsClassifier, normPath, parseStatus, pushLog, pushRoute, recordSample, releaseOf, route, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOf, tierOfLabel, tokensOption, touchedRepos, ttlMs, versionOf, withoutPin, type DailySamples } from './logic'
+import { TIER_NAME, modelLabel, releaseOf, tierOf, versionOf } from './tiers'
+import { CLASSIFY_LABELS, CLASSIFY_TIMEOUT_MS, SOURCE_NAME, advise, delegationHint, needsClassifier, pushRoute, route, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
+import { chargeReport, contextParts } from './load-report'
+import { cacheFromRelay, cacheState, costDelta, dayKey, isOptionOn, needsColdGuard, normPath, parseStatus, pushLog, recordSample, summarizeParallel, tokensOption, touchedRepos, ttlMs, type DailySamples } from './logic'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
