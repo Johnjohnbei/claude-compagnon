@@ -1,7 +1,7 @@
 {
   "name": "compagnon",
   "version": "0.10.1",
-  "description": "Panneau compagnon : bascule de modèle automatique sans perte de cache, contexte, forfait sur 7 jours, process bloqués, parallélisme, état des dépôts.",
+  "description": "Companion pane: automatic model switching without losing the cache, context, 7-day plan usage, stalled processes, parallelism, repository state.",
   "author": {
     "name": "Johnjohnbei"
   },
@@ -10,26 +10,26 @@
   "userConfig": {
     "projects": {
       "type": "string",
-      "title": "Dépôts suivis",
-      "description": "Chemins absolus des dépôts git à suivre, séparés par « ; ». Vide : le projet de la session seulement.",
+      "title": "Followed repositories",
+      "description": "Absolute paths of the git repositories to follow, separated by \";\". Empty: the session's project only.",
       "default": ""
     },
     "showBand": {
       "type": "boolean",
-      "title": "Bandeau au-dessus de la saisie",
-      "description": "Une ligne de chiffres (modèle, advisor, coût, contexte, agents) au-dessus de la zone de saisie. Décocher pour ne garder que le panneau.",
+      "title": "Band above the prompt",
+      "description": "One line of figures (model, advisor, cost, context, agents) above the prompt. Uncheck to keep the pane only.",
       "default": true
     },
     "classify": {
       "type": "boolean",
-      "title": "Classer les demandes non reconnues avec un modèle",
-      "description": "Une demande que les mots-clés ne reconnaissent pas est classée par un appel Haiku (environ 1 s et quelques centaines de jetons) au lieu de partir sur Opus. Décocher pour garder les mots-clés seuls.",
+      "title": "Classify unrecognised requests with a model",
+      "description": "A request the keywords do not recognise is classified by a Haiku call (about 1 s and a few hundred tokens) instead of going to Opus. Uncheck to keep the keywords only.",
       "default": true
     },
     "coldGuardTokens": {
       "type": "string",
-      "title": "Seuil de la garde de cache froid",
-      "description": "Taille de contexte (tokens, ex. 150000 ou 150k) au-delà de laquelle un envoi sur cache froid demande d'abord. 0 : jamais.",
+      "title": "Cold cache guard threshold",
+      "description": "Context size (tokens, e.g. 150000 or 150k) above which a send on a cold cache asks first. 0: never.",
       "default": "150000"
     }
   }

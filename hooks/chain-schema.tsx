@@ -1,5 +1,5 @@
 // The chain at the top of the pane: advisor, main session, decision layer, scouts, journal and status line, each block
-// in its role's colour (README, table « Bloc »).
+// in its role's colour (README, the blocks table).
 import type { RenderChildren } from 'claude-code'
 
 import type { AdvisorStat, AgentRow, CacheInfo, CacheVerdict, CtxPart, Decision, KeepWarm, Level, LogEntry, LogKind, Pin, RouteRecord, SeenModels, TurnCost, Usage } from '../types'
@@ -10,10 +10,10 @@ import { ageLabel, costSummary } from './logic'
 
 /** One colour per role in the chain, as in the reference video: lead, advisor, decisions, agents (ANSI names: a theme cannot hide them). */
 const ROLE = { lead: 'yellow', advisor: 'magenta', decision: 'green', agents: 'blue' } as const
-const hhmm = (at: number) => new Date(at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const hhmm = (at: number) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 const DAY = 86_400_000
-const PART_NAME: Record<string, string> = { 'System prompt': 'prompt', 'System tools': 'outils', 'MCP server instructions': 'MCP', 'Custom agents': 'agents', Skills: 'skills', Messages: 'messages', 'Memory files': 'mémoire' }
-const KIND_NAME: Record<LogKind, string> = { route: 'route', advisor: 'advisor', spawn: 'agent', release: 'modèle' }
+const PART_NAME: Record<string, string> = { 'System prompt': 'prompt', 'System tools': 'tools', 'MCP server instructions': 'MCP', 'Custom agents': 'agents', Skills: 'skills', Messages: 'messages', 'Memory files': 'memory' }
+const KIND_NAME: Record<LogKind, string> = { route: 'route', advisor: 'advisor', spawn: 'agent', release: 'model' }
 
 export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision | null, pin: Pin | null, cache: CacheInfo | null, verdict: CacheVerdict, kw: KeepWarm | null, warmLeft: number | null, ttl: number, isAuto: boolean, extra: RenderChildren[] = [], role?: string) {
   const { Text } = E
@@ -22,32 +22,32 @@ export function ModelCard(E: El, width: number, usage: Usage | null, d: Decision
   const shown = usage && tierOf(usage.model) === current ? modelLabel(usage.model) : TIER_NAME[current]
   const level: Level = verdict.isCold || kw?.stopped ? 'warn' : 'ok'
   const cacheLine = verdict.isCold ? (
-    <Text color="warning" wrap="truncate-end">cache froid · relit {k(verdict.recache)}</Text>
+    <Text color="warning" wrap="truncate-end">cold cache · rereads {k(verdict.recache)}</Text>
   ) : warmLeft !== null && warmLeft > 0 ? (
     <Text wrap="truncate-end">
       <Text dimColor>cache </Text>
       <Text color="success">{gauge((warmLeft / ttl) * 100)}</Text>
       <Text>  {ageLabel(warmLeft)}</Text>
-      <Text dimColor> · {k(verdict.recache)}{kw && !kw.stopped ? ' · au chaud' : ''}</Text>
+      <Text dimColor> · {k(verdict.recache)}{kw && !kw.stopped ? ' · kept warm' : ''}</Text>
     </Text>
   ) : (
-    <Text dimColor wrap="truncate-end">cache {cache ? 'chaud' : 'estimé'} · {k(verdict.recache)}</Text>
+    <Text dimColor wrap="truncate-end">cache {cache ? 'warm' : 'estimated'} · {k(verdict.recache)}</Text>
   )
   const detail = kw?.stopped
-    ? <Text color="warning" wrap="truncate-end">↳ maintien arrêté : {kw.stopped}</Text>
+    ? <Text color="warning" wrap="truncate-end">↳ keep-warm stopped: {kw.stopped}</Text>
     : !isAuto
-      ? <Text dimColor>↳ choix automatique coupé</Text>
+      ? <Text dimColor>↳ automatic choice off</Text>
       : d && d.action !== 'keep'
-        ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'basculé sur' : 'confié à'} {TIER_NAME[d.tier]}</Text>
+        ? <Text dimColor wrap="truncate-end">↳ {d.action === 'switch' ? 'switched to' : 'handed to'} {TIER_NAME[d.tier]}</Text>
         : null
-  return Card(E, width, 'Modèle', shown, level, [cacheLine, detail, ...extra], role)
+  return Card(E, width, 'Model', shown, level, [cacheLine, detail, ...extra], role)
 }
 
 /** The last things the mod decided or saw, newest last. */
 export function JournalCard(E: El, width: number, list: LogEntry[]) {
   const { Text } = E
-  return Card(E, width, 'Journal', `${list.length}`, 'ok', list.length === 0
-    ? [<Text dimColor>rien pour l’instant</Text>]
+  return Card(E, width, 'Log', `${list.length}`, 'ok', list.length === 0
+    ? [<Text dimColor>nothing yet</Text>]
     : list.slice(-6).map(l => (
       <Text wrap="truncate-end">
         <Text dimColor>{hhmm(l.at)} {KIND_NAME[l.kind].padEnd(8)}</Text>
@@ -57,15 +57,15 @@ export function JournalCard(E: El, width: number, list: LogEntry[]) {
 }
 
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
-const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'garde le modèle', switch: 'bascule sur ce palier', delegate: 'confie à un sous-agent' }
+const ACTION_TEXT: Record<RouteRecord['action'], string> = { keep: 'keeps the model', switch: 'switches to this tier', delegate: 'hands to a subagent' }
 /** The named scouts of ~/.claude/agents, and what each is for. */
-const SCOUTS: Array<[string, string, string]> = [['search', 'cartographie le dépôt', 'carte'], ['grep', 'sites d’appel', 'appels'], ['audit', 'revue du diff, worktree', 'revue']]
+const SCOUTS: Array<[string, string, string]> = [['search', 'maps the repository', 'map'], ['grep', 'call sites', 'calls'], ['audit', 'diff review, worktree', 'review']]
 const FINISHED = ['completed', 'failed', 'killed']
 
 /** One scout's state: running (and for how long), finished (and how long it ran), failed, or idle. The API gives no progress: no percentage. */
 function scoutState(list: AgentRow[], type: string, now: number): { mark: string; time: string; level: Level; isRunning: boolean; isIdle: boolean } {
   const last = list.filter(a => a.type === type).sort((a, b) => b.firstSeen - a.firstSeen)[0]
-  if (!last) return { mark: '·', time: 'inactif', level: 'ok', isRunning: false, isIdle: true }
+  if (!last) return { mark: '·', time: 'idle', level: 'ok', isRunning: false, isIdle: true }
   if (!FINISHED.includes(last.status)) return { mark: '●', time: clock(now - last.firstSeen), level: 'ok', isRunning: true, isIdle: false }
   const time = clock((last.endedAt ?? now) - last.firstSeen)
   return last.status === 'completed' ? { mark: '✓', time, level: 'ok', isRunning: false, isIdle: false } : { mark: '✕', time, level: 'warn', isRunning: false, isIdle: false }
@@ -76,13 +76,13 @@ export function AdvisorCard(E: El, width: number, adv: AdvisorStat, turns: TurnC
   const { Text } = E
   const s = costSummary(turns)
   const isHeavy = s.advisorTurns > 0 && s.advisorShare >= 0.5
-  return Card(E, width, 'Advisor', adv.calls > 0 ? plural(adv.calls, 'appel', 'appels') : 'aucun appel', isHeavy ? 'warn' : 'ok', adv.calls === 0
-    ? [<Text dimColor wrap="truncate-end">consulté quand Claude le décide</Text>]
+  return Card(E, width, 'Advisor', adv.calls > 0 ? plural(adv.calls, 'call', 'calls') : 'no calls', isHeavy ? 'warn' : 'ok', adv.calls === 0
+    ? [<Text dimColor wrap="truncate-end">consulted when Claude decides</Text>]
     : [
-      <Text wrap="truncate-end">dernier <Text dimColor>il y a {ageLabel(now - adv.lastAt)}</Text></Text>,
-      <Text dimColor wrap="truncate-end">conseil chiffré</Text>,
+      <Text wrap="truncate-end">last <Text dimColor>{ageLabel(now - adv.lastAt)} ago</Text></Text>,
+      <Text dimColor wrap="truncate-end">encrypted advice</Text>,
       s.advisorTurns > 0
-        ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">~{Math.round(s.advisorShare * 100)} % du coût (advisor)</Text>
+        ? <Text color={isHeavy ? 'warning' : undefined} dimColor={!isHeavy} wrap="truncate-end">~{Math.round(s.advisorShare * 100)}% of the cost (advisor)</Text>
         : null,
     ], ROLE.advisor)
 }
@@ -92,24 +92,24 @@ export function DecisionCard(E: El, width: number, routes: RouteRecord[], isAuto
   const { Text } = E
   const last = routes[routes.length - 1]
   const count = (src: RouteRecord['source']) => routes.filter(r => r.source === src).length
-  return Card(E, width, 'Décisions', `${routes.length}`, 'ok', !last
-    ? [<Text dimColor wrap="truncate-end">aucune décision pour l’instant</Text>, !isAuto ? <Text dimColor>↳ choix automatique coupé</Text> : null]
+  return Card(E, width, 'Decisions', `${routes.length}`, 'ok', !last
+    ? [<Text dimColor wrap="truncate-end">no decision yet</Text>, !isAuto ? <Text dimColor>↳ automatic choice off</Text> : null]
     : [
-      <Text wrap="truncate-end"><Text dimColor>palier </Text>{TIER_NAME[last.tier]} <Text dimColor>· {SOURCE_NAME[last.source]} · effort {last.effort}</Text></Text>,
+      <Text wrap="truncate-end"><Text dimColor>tier </Text>{TIER_NAME[last.tier]} <Text dimColor>· {SOURCE_NAME[last.source]} · effort {last.effort}</Text></Text>,
       <Text wrap="truncate-end"><Text dimColor>action </Text>{ACTION_TEXT[last.action]}</Text>,
-      <Text dimColor wrap="truncate-end">mots-clés {count('keywords')} · classifieur {count('classifier')} · défaut {count('default')}</Text>,
-      !isAuto ? <Text dimColor>↳ choix automatique coupé</Text> : null,
+      <Text dimColor wrap="truncate-end">keywords {count('keywords')} · classifier {count('classifier')} · default {count('default')}</Text>,
+      !isAuto ? <Text dimColor>↳ automatic choice off</Text> : null,
     ], ROLE.decision)
 }
 
-/** A scout card's narrowest width: its longest title (« search ») inside `╭─ … ─╮` with one dash of fill. */
+/** A scout card's narrowest width: its longest title ("search") inside `╭─ … ─╮` with one dash of fill. */
 const SCOUT_MIN = 13
 
 /** The scouts (search, grep, audit), three small cards side by side, one under the other when the pane cannot hold three. Other agents are counted. */
 export function SwarmCards(E: El, width: number, agents: AgentRow[], now: number, isWide: boolean) {
   const { Box, Text } = E
   const others = agents.filter(a => !SCOUTS.some(([name]) => name === a.type) && !FINISHED.includes(a.status)).length
-  const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'autre agent', 'autres agents')} en cours</Text> : null
+  const note = others > 0 ? <Text dimColor wrap="truncate-end">+ {plural(others, 'other agent', 'other agents')} running</Text> : null
   const each = Math.floor((width - (SCOUTS.length - 1)) / SCOUTS.length)
   const isRow = each >= SCOUT_MIN
   return (
@@ -139,7 +139,7 @@ function Link(E: El, width: number, kind: 'advice' | 'work' | 'back', label: str
 export function StatusFooter(E: El, agents: AgentRow[], adv: AdvisorStat, decisions: number, turns: TurnCost[]) {
   const { Text } = E
   const live = agents.filter(a => !FINISHED.includes(a.status)).length
-  return <Text dimColor wrap="truncate-end">agents [{plural(live, 'actif', 'actifs')}] · advisor [{plural(adv.calls, 'appel', 'appels')}] · décisions [{decisions}] · coût {usd(costSummary(turns).totalUsd)}</Text>
+  return <Text dimColor wrap="truncate-end">agents [{live} active] · advisor [{plural(adv.calls, 'call', 'calls')}] · decisions [{decisions}] · cost {usd(costSummary(turns).totalUsd)}</Text>
 }
 
 export type SchemaInput = {
@@ -164,10 +164,10 @@ export function Schema(E: El, s: SchemaInput) {
   const versions = TIERS_STRONGEST_FIRST.filter(t => s.seen[t]).map(t => modelLabel(s.seen[t] as string))
   const release = [...s.journal].reverse().find(l => l.kind === 'release' && s.now - l.at < DAY)
   const extra = [
-    release ? <Text color="warning" wrap="truncate-end">↳ nouvelle version : {release.text}</Text> : null,
+    release ? <Text color="warning" wrap="truncate-end">↳ new version: {release.text}</Text> : null,
     effort ? <Text wrap="truncate-end"><Text dimColor>effort </Text>{effort}</Text> : null,
-    versions.length > 0 ? <Text dimColor wrap="truncate-end">vus : {versions.join(' · ')}</Text> : null,
-    fixed.length > 0 ? <Text wrap="truncate-end"><Text dimColor>charge </Text>{k(fixed.reduce((n, p) => n + p.tokens, 0))}<Text dimColor>{messages ? ` · conversation ${k(messages.tokens)}` : ''}</Text></Text> : null,
+    versions.length > 0 ? <Text dimColor wrap="truncate-end">seen: {versions.join(' · ')}</Text> : null,
+    fixed.length > 0 ? <Text wrap="truncate-end"><Text dimColor>load </Text>{k(fixed.reduce((n, p) => n + p.tokens, 0))}<Text dimColor>{messages ? ` · conversation ${k(messages.tokens)}` : ''}</Text></Text> : null,
     fixed.length > 0 ? <Text dimColor wrap="truncate-end">{[...fixed].slice(0, 3).map(p => `${PART_NAME[p.name] ?? p.name.toLowerCase()} ${k(p.tokens)}`).join(' · ')}</Text> : null,
   ]
   const main = ModelCard(E, mainW, s.usage, s.decision, s.pin, s.cache, s.verdict, s.keepWarm, s.warmLeft, s.ttl, s.isAuto, extra, ROLE.lead)
@@ -183,16 +183,16 @@ export function Schema(E: El, s: SchemaInput) {
       ) : (
         <Box flexDirection="column">
           {advisor}
-          {Link(E, total, 'advice', 'conseil')}
+          {Link(E, total, 'advice', 'advice')}
           {main}
-          {Link(E, total, 'work', 'décide')}
+          {Link(E, total, 'work', 'decides')}
           {decisions}
-          {Link(E, total, 'work', 'délègue')}
+          {Link(E, total, 'work', 'delegates')}
         </Box>
       )}
-      {isWide ? <Text dimColor>  ↓ sous-agents</Text> : null}
+      {isWide ? <Text dimColor>  ↓ subagents</Text> : null}
       {SwarmCards(E, total, s.agents, s.now, isWide)}
-      {isWide ? null : Link(E, total, 'back', 'résultats')}
+      {isWide ? null : Link(E, total, 'back', 'results')}
       {JournalCard(E, total, s.journal)}
       {StatusFooter(E, s.agents, s.advisor, s.routes.length, s.turns)}
     </Box>

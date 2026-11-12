@@ -1,5 +1,5 @@
 // The pane's cards: stacked rounded cards, the title and the key figure set in the top border, one or two lines
-// inside, detail only when it needs a look (user choice 2026-11-05, "cards empilées"). The keys sit on one legend
+// inside, detail only when it needs a look (user choice 2026-11-05, "stacked cards"). The keys sit on one legend
 // line under the cards, not inside them.
 import type { AdvisorStat, AgentRow, BackgroundTask, Collision, Goal, Handoff, Level, ParallelSummary, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
 import { COLOR, Card, gauge, k, usd, type El } from './card-frame'
@@ -8,42 +8,42 @@ import { ageLabel, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
 const TOOL_LONG = 120_000
 const TASK_LONG = 600_000
-const AGENT_STATUS: Record<string, string> = { running: 'en cours', waiting: 'attend', failed: 'en échec', pending: 'en attente' }
+const AGENT_STATUS: Record<string, string> = { running: 'running', waiting: 'waiting', failed: 'failed', pending: 'pending' }
 
 /** The one-line band above the prompt: the figures that decide whether to look at the pane. */
 export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, contextPct: number | null, liveAgents: number) {
   const { Text } = E
   const level = contextPct === null ? 'ok' : levelOf(contextPct)
   // ▲ marks the context that needs a look, as on the cards: the colour alone does not carry the state.
-  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${level === 'ok' ? '' : '▲ '}ctx ${Math.round(contextPct)} %`, liveAgents > 0 ? `agents ${liveAgents}` : null]
+  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${level === 'ok' ? '' : '▲ '}ctx ${Math.round(contextPct)}%`, liveAgents > 0 ? `agents ${liveAgents}` : null]
   return <Text color={level === 'ok' ? undefined : COLOR[level]} dimColor={level === 'ok'} wrap="truncate-end">{parts.filter(Boolean).join(' · ')}</Text>
 }
 
 export function ContextCard(E: El, width: number, usage: Usage | null, ho: Handoff | null) {
   const { Text } = E
-  if (!usage) return Card(E, width, 'Contexte', '…', 'ok', [<Text dimColor>après la première réponse</Text>])
+  if (!usage) return Card(E, width, 'Context', '…', 'ok', [<Text dimColor>after the first reply</Text>])
   const level = levelOf(usage.contextPct)
-  return Card(E, width, 'Contexte', `${Math.round(usage.contextPct)} %`, level, [
+  return Card(E, width, 'Context', `${Math.round(usage.contextPct)}%`, level, [
     <Text wrap="truncate-end">
       <Text color={COLOR[level]}>{gauge(usage.contextPct)}</Text>
       <Text dimColor>  {k(usage.contextTokens)} / {k(usage.contextWindow)}</Text>
     </Text>,
     ho?.state === 'ready'
-      ? <Text color="success">↳ handoff prêt : touche c</Text>
+      ? <Text color="success">↳ handoff ready: press c</Text>
       : ho?.state === 'writing'
-        ? <Text dimColor>↳ handoff en cours d’écriture…</Text>
-        : level !== 'ok' ? <Text color={COLOR[level]}>↳ bientôt plein : /clear ou handoff (h)</Text> : null,
+        ? <Text dimColor>↳ handoff being written…</Text>
+        : level !== 'ok' ? <Text color={COLOR[level]}>↳ nearly full: /clear or handoff (h)</Text> : null,
   ])
 }
 
 export function PlanCard(E: El, width: number, usage: Usage | null, samples: DailySamples, now: number) {
   const { Text } = E
   const week = (usage?.limits ?? []).find(l => l.kind === 'seven_day')
-  if (!week) return Card(E, width, 'Forfait 7 j', '…', 'ok', [<Text dimColor>après la première réponse</Text>])
+  if (!week) return Card(E, width, '7-day plan', '…', 'ok', [<Text dimColor>after the first reply</Text>])
   const level = levelOf(week.percentUsed)
   // Today counts at least what the status line reads now, sampled or not yet.
   const days = lastSevenDays(samples, now).map((v, i) => (i === 6 ? Math.max(v, week.percentUsed) : v))
-  return Card(E, width, 'Forfait 7 j', `${Math.round(week.percentUsed)} %`, level, [
+  return Card(E, width, '7-day plan', `${Math.round(week.percentUsed)}%`, level, [
     <Text wrap="truncate-end">
       <Text color="suggestion">{sparkline(days)}</Text>
       <Text dimColor>  {resetLabel(week.resetsAt, now)}</Text>
@@ -57,7 +57,7 @@ export function GoalCard(E: El, width: number, g: Goal | null, list: TaskRow[], 
   if (!g && list.length === 0) return null
   const p = goalProgress(list, g?.startedAt ?? now, now)
   const current = list.find(t => t.status === 'in_progress')
-  return Card(E, width, 'Objectif', `${p.done}/${p.total}`, 'ok', [
+  return Card(E, width, 'Goal', `${p.done}/${p.total}`, 'ok', [
     <Text wrap="truncate-end">
       <Text color="suggestion">{gauge(p.pct)}</Text>
       <Text>  {current?.subject ?? g?.condition ?? ''}</Text>
@@ -74,22 +74,22 @@ export function ProcessCard(E: El, width: number, now: number, running: RunningT
   const stuck = live.filter(a => a.status === 'failed' || a.status === 'waiting' || now - a.firstSeen > TASK_LONG)
   const level: Level = waiting || live.some(a => a.status === 'failed') ? 'alert' : longTools.length + oldTasks.length + stuck.length > 0 ? 'warn' : 'ok'
   const busy = running.length + tasks.length + live.length
-  const others = [live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, tasks.length && `${tasks.length} en fond`].filter(Boolean).join(' · ')
-  const summary = running[0] ? `${running[0].tool} ${ageLabel(now - running[0].start)}${others ? ` · ${others}` : ''}` : others || 'rien en cours'
+  const others = [live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, tasks.length && `${tasks.length} in background`].filter(Boolean).join(' · ')
+  const summary = running[0] ? `${running[0].tool} ${ageLabel(now - running[0].start)}${others ? ` · ${others}` : ''}` : others || 'nothing running'
   // Only what needs a look gets its own line; the rest is in the summary.
-  return Card(E, width, 'Process', waiting ? 'attend' : busy ? `${busy} en cours` : 'calme', level, [
+  return Card(E, width, 'Process', waiting ? 'waiting' : busy ? `${busy} running` : 'idle', level, [
     waiting ? <Text color="error" wrap="truncate-end">{waiting.message} · {ageLabel(now - waiting.at)}</Text> : <Text dimColor={level === 'ok'} wrap="truncate-end">{summary}</Text>,
     ...longTools.slice(0, 2).map(t => <Text color="warning" wrap="truncate-end">↳ {t.tool} {t.label} · {ageLabel(now - t.start)}</Text>),
     ...oldTasks.slice(0, 2).map(t => (
       <Box>
         <Text color="warning" wrap="truncate-end">↳ {t.label} · {ageLabel(now - t.firstSeen)} </Text>
-        <Button key={`stop-${t.id}`} plain dimColor label="arrêter" onPress={() => onStop(t.id)} />
+        <Button key={`stop-${t.id}`} plain dimColor label="stop" onPress={() => onStop(t.id)} />
       </Box>
     )),
     ...stuck.slice(0, 2).map(a => (
       <Box>
         <Text color={a.status === 'failed' ? 'error' : 'warning'} wrap="truncate-end">↳ {a.label} · {AGENT_STATUS[a.status] ?? a.status} · {ageLabel(now - a.firstSeen)} </Text>
-        <Button key={`view-${a.id}`} plain dimColor label="voir" onPress={() => onView(a.id)} />
+        <Button key={`view-${a.id}`} plain dimColor label="view" onPress={() => onView(a.id)} />
       </Box>
     )),
   ])
@@ -97,12 +97,12 @@ export function ProcessCard(E: El, width: number, now: number, running: RunningT
 
 export function ParallelCard(E: El, width: number, p: ParallelSummary | null) {
   const { Text } = E
-  if (!p || p.total === 0) return Card(E, width, 'Parallélisme', '…', 'ok', [<Text dimColor>bilan en fin de tour</Text>])
+  if (!p || p.total === 0) return Card(E, width, 'Parallelism', '…', 'ok', [<Text dimColor>summary at turn end</Text>])
   const level: Level = p.sequentialReads >= 6 ? 'alert' : p.sequentialReads >= 4 ? 'warn' : 'ok'
-  return Card(E, width, 'Parallélisme', `${p.overlapped}/${p.total}`, level, [
+  return Card(E, width, 'Parallelism', `${p.overlapped}/${p.total}`, level, [
     <Text wrap="truncate-end">
       <Text color={COLOR[level]}>{gauge((p.overlapped / p.total) * 100)}</Text>
-      <Text dimColor>  {level === 'ok' ? 'en même temps' : `${p.sequentialReads} lectures en série`}</Text>
+      <Text dimColor>  {level === 'ok' ? 'at the same time' : `${p.sequentialReads} reads in series`}</Text>
     </Text>,
   ])
 }
@@ -118,15 +118,15 @@ export function ProjectsCard(E: El, width: number, all: RepoState[], used: strin
   const row = (r: RepoState) => (
     <Text wrap="truncate-end">
       <Text bold>{r.name}</Text> <Text color="suggestion">{r.branch}</Text>
-      <Text dimColor>{r.dirty > 0 ? ` · ${r.dirty} modif` : ' · propre'}</Text>
+      <Text dimColor>{r.dirty > 0 ? ` · ${r.dirty} changed` : ' · clean'}</Text>
       {r.ahead > 0 && <Text color="warning"> · ↑{r.ahead}</Text>}
       {r.behind > 0 && <Text color="error"> · ↓{r.behind}</Text>}
     </Text>
   )
-  return Card(E, width, 'Projets', value, level, [
+  return Card(E, width, 'Projects', value, level, [
     // Collisions (from Collision Guard): a file this session edited that another open session edited too.
-    ...clash.slice(0, 2).map(c => <Text color="error" wrap="truncate-end">▲ {c.file} · « {c.who} » {ageLabel(now - c.at)}</Text>),
-    ...(repos.length ? repos.map(row) : [<Text dimColor>{all.length ? 'aucun dépôt touché' : 'lecture…'}</Text>]),
+    ...clash.slice(0, 2).map(c => <Text color="error" wrap="truncate-end">▲ {c.file} · "{c.who}" {ageLabel(now - c.at)}</Text>),
+    ...(repos.length ? repos.map(row) : [<Text dimColor>{all.length ? 'no repository touched' : 'reading…'}</Text>]),
     ...(isOpen ? idle.map(r => <Text dimColor wrap="truncate-end">{r.name} {r.branch}</Text>) : []),
   ])
 }
@@ -140,17 +140,17 @@ export function KeysLine(E: El, keys: Keys, on: KeyActions) {
   const sep = (n: string) => <Text key={n} dimColor> · </Text>
   return (
     <Box flexWrap="wrap">
-      <Button key="auto" plain dimColor hotkey="a" label={keys.isAuto ? 'auto' : 'auto coupé'} onPress={on.auto} />
+      <Button key="auto" plain dimColor hotkey="a" label={keys.isAuto ? 'auto' : 'auto off'} onPress={on.auto} />
       {sep('s1')}
-      <Button key="keepwarm" plain dimColor hotkey="k" label={keys.isKeepWarm ? 'arrêter le chaud' : 'garder au chaud'} onPress={on.keepWarm} />
+      <Button key="keepwarm" plain dimColor hotkey="k" label={keys.isKeepWarm ? 'stop warming' : 'keep warm'} onPress={on.keepWarm} />
       {sep('s2')}
       {keys.ho?.state === 'ready'
-        ? <Button key="continue" plain hotkey="c" label="repartir du handoff" onPress={on.resume} />
+        ? <Button key="continue" plain hotkey="c" label="restart from handoff" onPress={on.resume} />
         : <Button key="handoff" plain dimColor hotkey="h" label="handoff" onPress={on.handoff} />}
       {sep('s3')}
-      <Button key="refresh" plain dimColor hotkey="r" label="dépôts" onPress={on.refresh} />
+      <Button key="refresh" plain dimColor hotkey="r" label="repos" onPress={on.refresh} />
       {keys.hasIdle ? sep('s4') : null}
-      {keys.hasIdle ? <Button key="fold" plain dimColor hotkey="p" label={keys.isOpen ? 'replier' : 'autres'} onPress={on.fold} /> : null}
+      {keys.hasIdle ? <Button key="fold" plain dimColor hotkey="p" label={keys.isOpen ? 'fold' : 'others'} onPress={on.fold} /> : null}
     </Box>
   )
 }

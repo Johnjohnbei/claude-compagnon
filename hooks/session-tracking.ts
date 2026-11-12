@@ -135,7 +135,7 @@ export async function trackModel($: $, model: unknown) {
   const { tier, from, to } = learned.changed
   const change = `${TIER_NAME[tier]} ${versionOf(from) ?? from} → ${versionOf(to) ?? to}`
   await note($, 'release', change)
-  await $.ui.toast(`compagnon : nouvelle version, ${change}`)
+  await $.ui.toast(`compagnon: new version, ${change}`)
 }
 
 /** At a main-loop turn's end: what the turn cost (the cost figure's move), and what the context holds. */
@@ -147,7 +147,7 @@ export async function recordTurn($: $) {
   await update($, costMark, () => u.costUsd)
   if (usdMoved > 0 || adv.pending > 0) await update($, costs, list => [...list, { at, usd: usdMoved, tier: p?.tier ?? tierOf(u.model), advisorCalls: adv.pending }].slice(-200))
   await update($, advisor, a => ({ ...a, pending: 0 }))
-  // `full` counts each file on its own; `summary` spreads the remainder over « System tools » and understates the memory (measured: 27 k against 36 k).
+  // `full` counts each file on its own; `summary` spreads the remainder over "System tools" and understates the memory (measured: 27k against 36k).
   const full = (await $.session.usage({ breakdown: 'full' })) as { context?: { breakdown?: { categories?: Array<{ name: string; tokens: number; kind?: string }> } } }
   await update($, ctxParts, () => contextParts(full.context?.breakdown?.categories ?? []))
 }

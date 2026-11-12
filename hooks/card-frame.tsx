@@ -8,8 +8,8 @@ export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 export const COLOR: Record<Level, string> = { ok: 'success', warn: 'warning', alert: 'error' }
 const GAUGE = 10
 
-export const k = (tokens: number) => `${Math.round(tokens / 1000)} k`
-export const usd = (n: number) => `${n.toFixed(2).replace('.', ',')} $`
+export const k = (tokens: number) => `${Math.round(tokens / 1000)}k`
+export const usd = (n: number) => `$${n.toFixed(2)}`
 export const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
 
 /** `▰▰▰▰▰▰▱▱▱▱`: a thin gauge. */

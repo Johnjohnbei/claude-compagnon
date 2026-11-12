@@ -261,7 +261,7 @@ test('the pane draws its cards before any measure', async ($, on) => {
   on('store.get', () => ({ value: undefined }))
   on('clock.now', () => ({ value: NOW }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  for (const title of ['Modèle', 'Contexte', 'Forfait 7 j', 'Process', 'Parallélisme', 'Projets']) {
+  for (const title of ['Model', 'Context', '7-day plan', 'Process', 'Parallelism', 'Projects']) {
     // the title sits in the card's top border: ╭─ Title ─…
     const top = new RegExp(`^╭─ ${title} ─`)
     expect((await ui.find({ type: 'Text', text: top }))?.text).toMatch(top)
@@ -277,7 +277,7 @@ const ROUTES = [
 const STATE: Record<string, unknown> = {
   usage: { model: 'claude-opus-5-5', contextPct: 74, contextTokens: 148_000, contextWindow: 200_000, limits: [{ kind: 'seven_day', percentUsed: 41, resetsAt: '2026-11-08T09:00:00Z' }], costUsd: 0 },
   cache: { warm: true, caching: true, ttl: '1h', expiresAt: LIVE / 1000 + 2_520, recacheTokensIfCold: 148_000, hitRatio: 0.93 },
-  decision: { action: 'delegate', tier: 'sonnet', effort: 'medium', why: 'cache chaud de 148 k : Opus garde la main, travail confié à un sous-agent Sonnet' },
+  decision: { action: 'delegate', tier: 'sonnet', effort: 'medium', why: 'warm cache of 148k: Opus keeps the lead, work handed to a Sonnet subagent' },
   keepWarm: { until: LIVE + 7_200_000, pings: 2, lastPingAt: LIVE - 600_000, stopped: null },
   running: [{ id: 't1', tool: 'Bash', label: 'npx vitest run', start: LIVE - 150_000 }],
   agents: [
@@ -306,8 +306,8 @@ const STATE: Record<string, unknown> = {
     { name: 'Messages', tokens: 3717 },
   ],
   journal: [
-    { at: LIVE - 60_000, kind: 'advisor', text: 'consulté' },
-    { at: LIVE - 30_000, kind: 'route', text: 'Débogage : Opus, effort high' },
+    { at: LIVE - 60_000, kind: 'advisor', text: 'consulted' },
+    { at: LIVE - 30_000, kind: 'route', text: 'Debugging: Opus, effort high' },
   ],
   tasks: [
     { id: '1', subject: 'Lot A', status: 'completed' },
@@ -329,19 +329,19 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   on('clock.now', () => ({ value: LIVE }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /au chaud/, /confié à Sonnet$/, /^2\/4$/, /Bouton\.tsx · « refonte hub mobile »/, /Bash 2 min · 2 agents/, /148 k \/ 200 k/]) {
+  for (const words of [/^ {2}50 min$/, /kept warm/, /handed to Sonnet$/, /^2\/4$/, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
-  // a collision turns the Projets card's key value into ▲ 1
-  expect((await ui.find({ type: 'Text', text: /^╭─ Projets ─+ ▲ 1 ─╮$/ }))?.text).toMatch(/▲ 1/)
+  // a collision turns the Projects card's key value into ▲ 1
+  expect((await ui.find({ type: 'Text', text: /^╭─ Projects ─+ ▲ 1 ─╮$/ }))?.text).toMatch(/▲ 1/)
   // the chain: advisor, the main session with what it loads, the decision layer, the scouts, the journal, the status line
   for (const words of [
-    /^╭─ Advisor ─+ ▲ 2 appels ─╮$/, /^il y a 2 min$/, /~72 % du coût \(advisor\)/,
-    /vus : Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5/, /^outils 28 k · skills 9 k · prompt 2 k$/,
-    /^╭─ Décisions ─+ 2 ─╮$/, /mots-clés 1 · classifieur 1 · défaut 0/, /bascule sur ce palier/,
-    /^╭─ search ─+╮$/, /^╭─ grep ─+╮$/, /^╭─ audit ─+╮$/, /^● 0:42$/, /^✓ 0:18$/, /^· inactif$/,
-    /^consulté$/, /^Débogage : Opus, effort high$/,
-    /agents \[2 actifs\] · advisor \[2 appels\] · décisions \[2\] · coût 0,29 \$/,
+    /^╭─ Advisor ─+ ▲ 2 calls ─╮$/, /^2 min ago$/, /~72% of the cost \(advisor\)/,
+    /seen: Opus 5\.5 · Sonnet 5\.5 · Haiku 5\.5/, /^tools 28k · skills 9k · prompt 2k$/,
+    /^╭─ Decisions ─+ 2 ─╮$/, /keywords 1 · classifier 1 · default 0/, /switches to this tier/,
+    /^╭─ search ─+╮$/, /^╭─ grep ─+╮$/, /^╭─ audit ─+╮$/, /^● 0:42$/, /^✓ 0:18$/, /^· idle$/,
+    /^consulted$/, /^Debugging: Opus, effort high$/,
+    /agents \[2 active\] · advisor \[2 calls\] · decisions \[2\] · cost \$0\.29/,
   ]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
@@ -364,7 +364,7 @@ test('the band above the prompt is one line of figures', async ($, on) => {
     props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
   } as never)
   // 74 % is past the warning threshold: ▲ says it without the colour
-  const line = /^Opus 5\.5 · advisor 2 · 0,29 \$ · ▲ ctx 74 % · agents 2$/
+  const line = /^Opus 5\.5 · advisor 2 · \$0\.29 · ▲ ctx 74% · agents 2$/
   expect((await ui.find({ type: 'Text', text: line }))?.text).toMatch(line)
   await ui.unmount()
 })
@@ -438,10 +438,10 @@ test('the routing record keeps the first words only, the last two hundred, and r
   for (let i = 0; i < ROUTE_LOG_MAX + 3; i++) list = pushRoute(list, routeRecord(NOW + i, `demande ${i}`, need, 'keep'))
   expect(list.length).toBe(ROUTE_LOG_MAX)
   expect(list[0]?.head).toBe('demande 3')
-  expect(routeReport([])).toBe('Aucune décision enregistrée pour l’instant.')
+  expect(routeReport([])).toBe('No decision recorded yet.')
   const kw = routeRecord(NOW, 'corrige ceci', { ...need, source: 'keywords' }, 'switch')
   const report = routeReport([kw, record])
-  expect(report.split('\n')[0]).toBe('2 décisions : mots-clés 1, classifieur 1, défaut 0.')
+  expect(report.split('\n')[0]).toBe('2 decisions: keywords 1, classifier 1, default 0.')
   expect(report).toContain('corrige ceci')
 })
 
@@ -455,11 +455,11 @@ test('wide pane: the advisor sits beside the main session, the three scouts side
   on('store.get', (_, e) => ({ value: (e as unknown as { key: string }).key === 'routeLog' ? ROUTES : undefined }))
   on('clock.now', () => ({ value: LIVE }))
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 100 }, surface: 'terminal' } as never)
-  for (const title of ['Advisor', 'Modèle', 'Décisions', 'search', 'grep', 'audit']) {
+  for (const title of ['Advisor', 'Model', 'Decisions', 'search', 'grep', 'audit']) {
     const top = new RegExp(`^╭─ ${title} ─`)
     expect((await ui.find({ type: 'Text', text: top }))?.text).toMatch(top)
   }
-  expect((await ui.find({ type: 'Text', text: /↓ sous-agents/ }))?.text).toMatch(/↓ sous-agents/)
+  expect((await ui.find({ type: 'Text', text: /↓ subagents/ }))?.text).toMatch(/↓ subagents/)
   await ui.unmount()
 })
 
@@ -481,7 +481,7 @@ test('a narrow pane: no card spills past its width, the scouts stack, and a stat
     // three scouts cannot sit side by side: each takes the pane's width
     expect((await ui.find({ type: 'Text', text: /^╭─ search ─+╮$/ }))?.text.length).toBe(columns)
     // the context card past 70 % shows ▲ before its value, not only an orange border
-    expect((await ui.find({ type: 'Text', text: /^╭─ Contexte ─+ ▲ 74 % ─╮$/ }))?.text).toMatch(/▲ 74 %/)
+    expect((await ui.find({ type: 'Text', text: /^╭─ Context ─+ ▲ 74% ─╮$/ }))?.text).toMatch(/▲ 74%/)
     await ui.unmount()
   }
 })
@@ -506,18 +506,18 @@ test('the load report names the heavy sources: memory files by path, skills by p
     mcpTools: [{ server: 'supabase', tokens: 800 }, { name: 'github', tokens: 500 }, { server: 'supabase', tokens: 200 }],
   }
   const report = chargeReport(breakdown)
-  expect(report.split('\n')[0]).toBe('Charge au démarrage : 41,0 k jetons, plus la conversation 13,1 k jetons.')
-  expect(report).toContain('Memory files 15,8 k')
+  expect(report.split('\n')[0]).toBe('Startup load: 41.0k tokens, plus the conversation 13.1k tokens.')
+  expect(report).toContain('Memory files 15.8k')
   // the heaviest memory file comes first, with its path
-  expect(report.indexOf('15,6 k')).toBeLessThan(report.indexOf('151'))
+  expect(report.indexOf('15.6k')).toBeLessThan(report.indexOf('151'))
   expect(report).toContain('/p/CLAUDE.md')
-  expect(report).toContain('Skills (3, 161), par origine : userSettings 101 · brand-voice 60.')
-  expect(report).toContain('Agents (2, 704), par origine : plugin 404 · userSettings 300.')
-  expect(report).toContain('Outils MCP (3, 1,5 k), par serveur : supabase 1,0 k · github 500.')
-  expect(report).toContain('Commandes : 65 (919).')
+  expect(report).toContain('Skills (3, 161), by source: userSettings 101 · brand-voice 60.')
+  expect(report).toContain('Agents (2, 704), by source: plugin 404 · userSettings 300.')
+  expect(report).toContain('MCP tools (3, 1.5k), by server: supabase 1.0k · github 500.')
+  expect(report).toContain('Commands: 65 (919).')
   // a shape it does not know never throws
-  expect(chargeReport(undefined)).toBe('Aucune mesure : le moteur n’a pas renvoyé de détail de contexte.')
-  expect(chargeReport({ categories: [{ name: 'Skills', tokens: 10, kind: 'used' }], memoryFiles: 'oops', skills: null, mcpTools: [null, 3] })).toContain('Charge au démarrage : 10 jetons.')
+  expect(chargeReport(undefined)).toBe('No measure: the engine returned no context detail.')
+  expect(chargeReport({ categories: [{ name: 'Skills', tokens: 10, kind: 'used' }], memoryFiles: 'oops', skills: null, mcpTools: [null, 3] })).toContain('Startup load: 10 tokens.')
 })
 
 test('a request that opens with a lookup verb is a lookup: mapping, finding, listing', async () => {
@@ -539,11 +539,42 @@ test('the debugging rule does not fire on a typo or inside another word', async 
   expect(advise('corrige les erreurs de frappe du README')?.tier).toBe('sonnet')
   expect(advise('corrige la faute de frappe dans le README')?.tier).toBe('sonnet')
   // « implante » holds « plante »: it is no crash
-  expect(advise('implante le composant de recherche dans la page')?.need).not.toBe('Débogage')
+  expect(advise('implante le composant de recherche dans la page')?.need).not.toBe('Debugging')
   // the real ones still are
-  expect(advise('il y a une erreur dans les logs au démarrage du serveur')?.need).toBe('Débogage')
-  expect(advise('le build plante depuis la mise à jour de vite')?.need).toBe('Débogage')
-  expect(advise('plante au démarrage quand le cache est vide, regarde')?.need).toBe('Débogage')
+  expect(advise('il y a une erreur dans les logs au démarrage du serveur')?.need).toBe('Debugging')
+  expect(advise('le build plante depuis la mise à jour de vite')?.need).toBe('Debugging')
+  expect(advise('plante au démarrage quand le cache est vide, regarde')?.need).toBe('Debugging')
+})
+
+test('the keyword rules read English as well as French, each language on a real request', async () => {
+  // English requests: the same tiers as their French twins in the tests above
+  expect(advise('review the architecture of the generation pipeline')?.tier).toBe('fable')
+  expect(advise('what is the root cause of the slowness on mobile?')?.tier).toBe('fable')
+  expect(advise('there is a bug on the profile page when I click')?.need).toBe('Debugging')
+  expect(advise('the build crashes since the vite upgrade')?.need).toBe('Debugging')
+  expect(advise('the tests are failing after the merge, have a look')?.need).toBe('Debugging')
+  expect(advise('where is the useModuleEnabled hook defined?')?.tier).toBe('haiku')
+  expect(advise('list the test files in the arsenal folder')?.tier).toBe('haiku')
+  expect(advise('who calls tierOf in this repository?')?.tier).toBe('haiku')
+  expect(advise('find the bug that crashes the profile page')?.tier).toBe('opus') // debugging wins over the lookup verb
+  expect(advise('refactor the auth service into smaller modules')?.need).toBe('Feature or refactor')
+  expect(advise('implement automatic saving of the draft')?.need).toBe('Feature or refactor')
+  expect(advise('fix the typo in the title of the lab page')?.need).toBe('Routine edit')
+  expect(advise('fix the spelling error in the README')?.need).toBe('Routine edit') // a spelling error is a typo, not a bug
+  expect(advise('add a dark theme toggle to the settings page')?.need).toBe('Routine edit')
+  expect(advise('commit and push the changes on this branch')?.need).toBe('Routine edit')
+  // the French keywords are all still read
+  expect(advise("revois l'architecture du pipeline de génération")?.tier).toBe('fable')
+  expect(advise('il y a un bug sur la page profil quand on clique')?.need).toBe('Debugging')
+  expect(advise('où est défini le hook useModuleEnabled ?')?.tier).toBe('haiku')
+  expect(advise('implémente la sauvegarde automatique du brouillon')?.need).toBe('Feature or refactor')
+  expect(advise('corrige la faute dans le titre de la page lab')?.need).toBe('Routine edit')
+})
+
+test('the classifier labels are English and carry the criteria of each tier', async () => {
+  expect(CLASSIFY_LABELS.haiku).toBe('simple lookup or reading question (where, list, show, how many)')
+  expect(CLASSIFY_LABELS.fable).toContain('root cause')
+  for (const label of Object.values(CLASSIFY_LABELS)) expect(label).toMatch(/^[a-z][a-z ,()-]+\)?$/)
 })
 
 test('the classifier raises the weak edit rule, never lowers it, and answers what no rule recognised', async () => {
@@ -572,16 +603,16 @@ test('the load report points at the heavy sources only', async () => {
     agents: [{ agentType: 'brand-voice:z', source: 'plugin', tokens: 1900 }],
     mcpTools: [{ server: 'supabase', tokens: 2500 }],
   })
-  expect(heavy).toContain('Pistes :')
-  expect(heavy).toContain('projet-e/CLAUDE.md pèse 17,0 k')
-  expect(heavy).toContain('Plugin marketing : 1,8 k de skills')
-  expect(heavy).toContain('Agents de plugins : 1,9 k')
-  expect(heavy).toContain('Serveur MCP supabase : 2,5 k')
+  expect(heavy).toContain('Pointers:')
+  expect(heavy).toContain('projet-e/CLAUDE.md weighs 17.0k')
+  expect(heavy).toContain('Plugin marketing: 1.8k of skills')
+  expect(heavy).toContain('Plugin agents: 1.9k')
+  expect(heavy).toContain('MCP server supabase: 2.5k')
   // a small memory file and a user skill earn no pointer
-  expect(heavy).not.toContain('RTK.md pèse')
+  expect(heavy).not.toContain('RTK.md weighs')
   expect(heavy).not.toContain('Plugin userSettings')
   const light = chargeReport({ categories: [{ name: 'Memory files', tokens: 3000, kind: 'used' }], memoryFiles: [{ path: '/p/CLAUDE.md', type: 'Project', tokens: 3000 }] })
-  expect(light).not.toContain('Pistes')
+  expect(light).not.toContain('Pointers')
 })
 
 test('contract with claude-config: the prompt_cache the status line relays reads into a cache state', async () => {

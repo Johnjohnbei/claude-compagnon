@@ -1,6 +1,6 @@
 {
   "name": "claude-compagnon",
-  "description": "Mod compagnon pour Claude Code : panneau de supervision et bascule de modèle sans perte de cache.",
+  "description": "Compagnon mod for Claude Code: a supervision pane and model switching without losing the cache.",
   "owner": {
     "name": "Johnjohnbei"
   },

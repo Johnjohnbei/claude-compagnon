@@ -1,6 +1,7 @@
 // Which model a request gets: keyword rules, the classifier layer, the route against the cache, and the decisions log. No `$`.
 import type { Advice, CacheVerdict, Decision, Effort, RouteRecord, Source, Tier } from '../types'
 import { DEFAULT_TIER, TIER_NAME, TIERS, byTier, rankOf } from './tiers'
+import { shortStamp } from './logic'
 
 /** Engine version from which `turn.step` accepts an alias; before it the alias reaches the API as is and the request fails. */
 const ALIAS_MIN_VERSION = [2, 1, 309]
@@ -24,14 +25,31 @@ export function supportsAlias(version: unknown): boolean {
 // ponytail: keyword rules, zero token (user choice 2026-11-05); what they miss, or only the weak edit rule catches, goes to the Haiku classifier (CLASSIFY_LABELS).
 // The debugging rule is strong (never second-guessed), so a substring hit there costs an Opus turn: « erreur de frappe » is a typo
 // (its twin « faute de frappe » already went to the edit rule), and « plante » must start a word (« implante » is no crash).
+// The English twin: a spelling or typing error is a typo too.
+// Each rule reads French AND English, since requests come in either: a French keyword is never dropped for its English one.
 export const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
-  { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
-  { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|\bplante|erreur(?!s? de frappe)/i },
+  { tier: 'fable', effort: 'xhigh', need: 'Architecture or root cause', re: /architectur|cause racine|root cause|ambigu|stratégi|strateg|audit 360|refonte globale|arbitrage|trade-?offs?/i },
+  {
+    tier: 'opus',
+    effort: 'high',
+    need: 'Debugging',
+    re: /\bbugs?\b|débog|debug|crash|régression|regression|cassé|broken|ne marche|doesn'?t work|not working|\bplante|erreur(?!s? de frappe)|(?<!spelling |typing )\berrors?\b|\bfail(?:s|ed|ing|ure)?\b|stack ?trace/i,
+  },
   // A request that opens with a lookup word or verb is a lookup, whatever it names (« liste les fichiers de tests », « cartographie ce dépôt »): above the edit and feature rules,
   // below the debugging and architecture ones (« où est le bug » stays a bug). JS \b is ASCII-only: it never matches after « où ».
-  { tier: 'haiku', effort: 'low', need: 'Question simple', re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi|cartograph\w*|trouve|recense|repère|dresse la liste|(?:fais|donne)(?:-moi)? la liste|qui appelle)(?=[\s,?:-]|$)/i },
-  { tier: 'opus', effort: 'medium', need: 'Fonctionnalité ou refonte', re: /refactor|refonte|fonctionnalit|feature|implément|\bmod\b|composant|migration|\bplan\b|maquette/i },
-  { tier: 'sonnet', effort: 'medium', need: 'Édition courante', re: /corrige|ajoute|modifie|texte|copie|tradui|\bdoc|tests?\b|lint|renomme|commit|push/i },
+  {
+    tier: 'haiku',
+    effort: 'low',
+    need: 'Simple question',
+    re: /^(où|ou est|liste|montre|combien|quel|quelle|git status|cherche|c'est quoi|cartograph\w*|trouve|recense|repère|dresse la liste|(?:fais|donne)(?:-moi)? la liste|qui appelle|where(?:'s)?|list|show|how many|which|what(?:'s| is)|find|search|look up|map|who calls)(?=[\s,?:-]|$)/i,
+  },
+  { tier: 'opus', effort: 'medium', need: 'Feature or refactor', re: /refactor|refonte|fonctionnalit|feature|implément|implement|\bmod\b|composant|component|migration|migrate|\bplan\b|maquette|mock-?up|redesign/i },
+  {
+    tier: 'sonnet',
+    effort: 'medium',
+    need: 'Routine edit',
+    re: /corrige|ajoute|modifie|texte|copie|tradui|\bdoc|tests?\b|lint|renomme|commit|push|\bfix(?:es)?\b|\badd\b|\bchange\b|\bupdate\b|\brename\b|\btext\b|\bcopy\b|translat|\btypos?\b/i,
+  },
 ]
 
 /** The model a request needs; null for a follow-up ("ok", "continue") or a slash command, which keep the model. */
@@ -39,8 +57,8 @@ export function advise(text: string): Advice | null {
   const ask = text.trim()
   if (ask.length < 20 || ask.startsWith('/')) return null
   const rule = RULES.find(r => r.re.test(ask))
-  const found = rule ?? { tier: DEFAULT_TIER, effort: CLASSIFIED_EFFORT[DEFAULT_TIER], need: 'Demande générale' }
-  return { tier: found.tier, effort: found.effort, need: found.need, reason: `${found.need} : ${TIER_NAME[found.tier]}, effort ${found.effort}`, source: rule ? 'keywords' : 'default' }
+  const found = rule ?? { tier: DEFAULT_TIER, effort: CLASSIFIED_EFFORT[DEFAULT_TIER], need: 'General request' }
+  return { tier: found.tier, effort: found.effort, need: found.need, reason: `${found.need}: ${TIER_NAME[found.tier]}, effort ${found.effort}`, source: rule ? 'keywords' : 'default' }
 }
 
 /**
@@ -49,13 +67,13 @@ export function advise(text: string): Advice | null {
  */
 export function route(advice: Advice, current: Tier, verdict: CacheVerdict): Decision {
   if (advice.tier === current) return { action: 'keep', tier: current, effort: advice.effort, why: advice.reason }
-  if (verdict.isFree) return { action: 'switch', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : bascule vers ${TIER_NAME[advice.tier]}` }
-  return { action: 'delegate', tier: advice.tier, effort: advice.effort, why: `${verdict.why} : ${TIER_NAME[current]} garde la main, travail confié à un sous-agent ${TIER_NAME[advice.tier]}` }
+  if (verdict.isFree) return { action: 'switch', tier: advice.tier, effort: advice.effort, why: `${verdict.why}: switching to ${TIER_NAME[advice.tier]}` }
+  return { action: 'delegate', tier: advice.tier, effort: advice.effort, why: `${verdict.why}: ${TIER_NAME[current]} keeps the lead, work handed to a ${TIER_NAME[advice.tier]} subagent` }
 }
 
 /** A switch the engine cannot take (no alias support) becomes a delegation: the work still reaches the right model. */
 export const withoutPin = (d: Decision, current: Tier): Decision =>
-  d.action === 'switch' ? { ...d, action: 'delegate', why: `${TIER_NAME[current]} garde la main (bascule indisponible sur ce moteur), travail confié à un sous-agent ${TIER_NAME[d.tier]}` } : d
+  d.action === 'switch' ? { ...d, action: 'delegate', why: `${TIER_NAME[current]} keeps the lead (switching unavailable on this engine), work handed to a ${TIER_NAME[d.tier]} subagent` } : d
 
 /**
  * The tier a delegation imposes on a subagent. Only a general-purpose subagent whose call named no model gets it: a model
@@ -69,11 +87,12 @@ export function spawnModel(d: Decision | null, e: { subagentType: string; model?
 
 /** Appended to the user's message (never to the system prompt, which would break the cache it protects). */
 export const delegationHint = (d: Decision, need: string): string =>
-  `\n\n[compagnon] Besoin détecté : ${need.toLowerCase()}. Pour ne pas perdre le cache de ce contexte, garde le modèle actuel pour piloter et confie l'exécution à un sous-agent avec model: "${d.tier}", en lui donnant un brief complet (fichiers, objectif, critères). Si la tâche est trop courte pour valoir un sous-agent, fais-la directement.`
+  `\n\n[compagnon] Detected need: ${need.toLowerCase()}. To keep this context's cache, keep the current model to steer and hand the execution to a subagent with model: "${d.tier}", giving it a complete brief (files, goal, criteria). If the task is too short to be worth a subagent, do it directly.`
 
 /**
  * The classifier layer: what the keyword rules did not recognise goes to `$.model.classify` with one label per tier.
- * The label carries the criteria, so the model reads what each tier is for. Measured on 30 synthetic French requests:
+ * The label carries the criteria (in English: a French request reads against them as well), so the model reads what each tier
+ * is for. Measured with the former French labels on 30 synthetic French requests:
  * 29/30 against 22/30 for the keywords alone, 10/10 against 3/10 on the ones without a keyword.
  */
 export const CLASSIFY_LABELS: Record<Tier, string> = byTier(t => t.label)
@@ -86,13 +105,13 @@ export const tierOfLabel = (label: string): Tier | undefined => TIERS.find(t => 
 export const adviseClassified = (tier: Tier): Advice => ({
   tier,
   effort: CLASSIFIED_EFFORT[tier],
-  need: 'Classé par le modèle',
-  reason: `Classé par le modèle : ${TIER_NAME[tier]}, effort ${CLASSIFIED_EFFORT[tier]}`,
+  need: 'Classified by the model',
+  reason: `Classified by the model: ${TIER_NAME[tier]}, effort ${CLASSIFIED_EFFORT[tier]}`,
   source: 'classifier',
 })
 
 /** The keyword rule whose hit is the weakest signal (« ajoute », « texte », « commit » appear in features and decisions too). */
-const EDIT_NEED = 'Édition courante'
+const EDIT_NEED = 'Routine edit'
 
 /** Whether the classifier is worth a call: nothing recognised the request, or only the weak edit rule did. */
 export const needsClassifier = (advice: Advice): boolean => advice.source === 'default' || advice.need === EDIT_NEED
@@ -108,7 +127,7 @@ export function settle(keyword: Advice, classified: Tier | undefined): Advice {
   return rankOf(classified) > rankOf(keyword.tier) ? adviseClassified(classified) : keyword
 }
 
-export const SOURCE_NAME: Record<Source, string> = { keywords: 'mots-clés', classifier: 'classifieur', default: 'défaut' }
+export const SOURCE_NAME: Record<Source, string> = { keywords: 'keywords', classifier: 'classifier', default: 'default' }
 
 /** The routing decisions kept for review: the last two hundred. */
 export const ROUTE_LOG_MAX = 200
@@ -124,8 +143,8 @@ export const pushRoute = (list: RouteRecord[], record: RouteRecord): RouteRecord
 
 /** The review the `/compagnon decisions` command prints: the layer counts, then the last lines. */
 export function routeReport(list: RouteRecord[], last = 20): string {
-  if (list.length === 0) return 'Aucune décision enregistrée pour l’instant.'
+  if (list.length === 0) return 'No decision recorded yet.'
   const count = (s: Source) => list.filter(r => r.source === s).length
-  const lines = list.slice(-last).map(r => `${new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}  ${SOURCE_NAME[r.source].padEnd(10)} ${TIER_NAME[r.tier].padEnd(6)} ${r.action.padEnd(8)} ${r.head}`)
-  return [`${list.length} décision${list.length > 1 ? 's' : ''} : mots-clés ${count('keywords')}, classifieur ${count('classifier')}, défaut ${count('default')}.`, ...lines].join('\n')
+  const lines = list.slice(-last).map(r => `${shortStamp(r.at)}  ${SOURCE_NAME[r.source].padEnd(10)} ${TIER_NAME[r.tier].padEnd(6)} ${r.action.padEnd(8)} ${r.head}`)
+  return [`${list.length} decision${list.length > 1 ? 's' : ''}: keywords ${count('keywords')}, classifier ${count('classifier')}, default ${count('default')}.`, ...lines].join('\n')
 }

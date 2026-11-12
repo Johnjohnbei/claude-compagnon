@@ -24,7 +24,7 @@ let aliasSupport: Promise<boolean> | null = null
  */
 export function isAliasSupported($: $): Promise<boolean> {
   aliasSupport ??= $.session.version().then(supportsAlias, () => false).then(async ok => {
-    if (!ok) await quietly(async () => $.ui.toast('compagnon : bascule de modèle coupée (Claude Code 2.1.309 minimum, ou version illisible).'))
+    if (!ok) await quietly(async () => $.ui.toast('compagnon: model switching off (needs Claude Code 2.1.309 or later, or the version could not be read).'))
     return ok
   })
   return aliasSupport
@@ -55,20 +55,20 @@ export async function coldSendGuard($: $, text: string, threshold: number): Prom
   const v = verdict as CacheVerdict | null
   if (!v || !needsColdGuard(v, threshold)) return null
   const answer = await $.ui
-    .ask(`Cache froid : envoyer maintenant relit ${Math.round(v.recache / 1000)} k tokens de contexte. Que faire ?`, {
-      header: 'Cache froid',
-      options: ['Envoyer', 'Compacter puis envoyer', 'Handoff puis session neuve', 'Annuler'],
+    .ask(`Cold cache: sending now rereads ${Math.round(v.recache / 1000)}k tokens of context. What should happen?`, {
+      header: 'Cold cache',
+      options: ['Send', 'Compact then send', 'Handoff then fresh session', 'Cancel'],
     })
-    .catch(() => 'Envoyer') // nobody to ask (a -p run) or dismissed: send as typed
-  if (answer === 'Compacter puis envoyer') {
+    .catch(() => 'Send') // nobody to ask (a -p run) or dismissed: send as typed
+  if (answer === 'Compact then send') {
     const isCompacted = await $.session.compact().then(() => true, () => false)
-    if (!isCompacted) await $.ui.toast('Compaction refusée par le moteur : message envoyé tel quel.')
+    if (!isCompacted) await $.ui.toast('Compaction refused by the engine: message sent as typed.')
   }
-  if (answer === 'Handoff puis session neuve') {
+  if (answer === 'Handoff then fresh session') {
     $.clock.after(300, () => void quietly(() => askHandoff($, text)))
-    return 'Retenu par compagnon : handoff puis session neuve, le message sera renvoyé après.'
+    return 'Held by compagnon: handoff then fresh session, the message is sent again afterwards.'
   }
-  if (answer === 'Annuler') return 'Annulé par compagnon avant de relire un cache froid.'
+  if (answer === 'Cancel') return 'Cancelled by compagnon before rereading a cold cache.'
   return null
 }
 
@@ -89,7 +89,7 @@ export async function routePrompt($: $, text: string, isClassifierOn: boolean): 
   const routed = route(need, current, await verdictNow($))
   const d = (await isAliasSupported($)) ? routed : withoutPin(routed, current)
   await update($, decision, () => d)
-  await note($, 'route', `${SOURCE_NAME[need.source]} : ${d.why}`)
+  await note($, 'route', `${SOURCE_NAME[need.source]}: ${d.why}`)
   const kept = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
   await $.store.set('routeLog', pushRoute(kept, routeRecord(await $.clock.now(), text, need, d.action)))
   if (d.action === 'switch') await update($, pin, () => ({ tier: d.tier, effort: d.effort }))

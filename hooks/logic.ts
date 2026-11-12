@@ -16,13 +16,13 @@ export function cacheState(cache: CacheInfo | null, now: number, lastTurnEnd: nu
   const recache = cache?.recacheTokensIfCold ?? contextTokens
   const small = recache < CACHE_KEEP_TOKENS
   // A keep-warm ping read the cache after the status line last spoke: its figures are stale, the ping wins.
-  if (warmUntil > now) return small ? { isFree: true, isCold: false, why: `petit contexte (${Math.round(recache / 1000)} k)`, recache } : { isFree: false, isCold: false, why: `cache gardé au chaud, ${Math.round(recache / 1000)} k`, recache }
-  if (cache && cache.recacheTokensIfCold === null && cache.caching) return { isFree: true, isCold: false, why: 'compaction récente : le cache se reconstruit de toute façon', recache: 0 }
+  if (warmUntil > now) return small ? { isFree: true, isCold: false, why: `small context (${Math.round(recache / 1000)}k)`, recache } : { isFree: false, isCold: false, why: `cache kept warm, ${Math.round(recache / 1000)}k`, recache }
+  if (cache && cache.recacheTokensIfCold === null && cache.caching) return { isFree: true, isCold: false, why: 'recent compaction: the cache is rebuilt anyway', recache: 0 }
   const expires = cache?.expiresAt ? cache.expiresAt * 1000 : lastTurnEnd > 0 ? lastTurnEnd + ttlMs(cache) : 0
-  if (cache && !cache.warm) return { isFree: true, isCold: true, why: 'cache déjà froid', recache }
-  if (expires > 0 && now >= expires) return { isFree: true, isCold: true, why: 'cache expiré pendant la pause', recache }
-  if (small) return { isFree: true, isCold: false, why: `petit contexte (${Math.round(recache / 1000)} k), relecture négligeable`, recache }
-  return { isFree: false, isCold: false, why: `cache chaud de ${Math.round(recache / 1000)} k`, recache }
+  if (cache && !cache.warm) return { isFree: true, isCold: true, why: 'cache already cold', recache }
+  if (expires > 0 && now >= expires) return { isFree: true, isCold: true, why: 'cache expired during the pause', recache }
+  if (small) return { isFree: true, isCold: false, why: `small context (${Math.round(recache / 1000)}k), negligible reread`, recache }
+  return { isFree: false, isCold: false, why: `warm cache of ${Math.round(recache / 1000)}k`, recache }
 }
 
 /** The cache's lifetime from the status line's `ttl` ("5m", "1h"); 1 h when unknown (the CLI's default on a plan). */
@@ -103,11 +103,11 @@ export function goalProgress(tasks: TaskRow[], startedAt: number, now: number): 
 
 /** What Claude is asked to write for a handoff: a file a fresh session can resume from. */
 export const handoffPrompt = (path: string): string =>
-  `Écris un handoff de cette session dans le fichier ${path} (outil Write), pour qu'une session neuve reprenne sans rien perdre : objectif, état actuel, décisions prises et pourquoi, fichiers touchés, ce qui reste à faire dans l'ordre, pièges connus, commandes de vérification. Commence par le titre « # Handoff ». Ne fais rien d'autre.`
+  `Write a handoff of this session to the file ${path} (Write tool), so that a fresh session resumes without losing anything: goal, current state, decisions made and why, files touched, what remains to do in order, known pitfalls, verification commands. Start with the title "# Handoff". Do nothing else.`
 
 /** The first prompt of the fresh session: read the handoff, then carry on (and the message the cold guard held, if any). */
 export const continuationPrompt = (path: string, pending: string): string =>
-  `Reprise après handoff : lis ${path} en entier, puis continue le travail là où il s'est arrêté.${pending ? `\n\nMessage en attente : ${pending}` : ''}`
+  `Resuming after a handoff: read ${path} in full, then carry on with the work where it stopped.${pending ? `\n\nPending message: ${pending}` : ''}`
 
 /** Usage thresholds used by ccusage and most status lines: green under 70 %, red from 90 %. */
 export const levelOf = (pct: number): Level => (pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok')
@@ -125,9 +125,12 @@ export const ageLabel = (ms: number): string => {
 }
 
 export const resetLabel = (iso: string | undefined, now: number): string =>
-  iso ? `reset dans ${ageLabel(Date.parse(iso) - now)}` : 'reset inconnu'
+  iso ? `resets in ${ageLabel(Date.parse(iso) - now)}` : 'reset unknown'
 
-/** Local calendar day (Europe/Paris on this machine), the key of a daily sample. */
+/** "12/11/2026, 14:03": the date and time a report line carries (local time, 24 h). */
+export const shortStamp = (at: number): string => new Date(at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+
+/** Local calendar day (the machine's time zone), the key of a daily sample. */
 export const dayKey = (now: number): string => new Date(now).toLocaleDateString('sv-SE')
 
 /** Peak of the 7-day window per local day. The 5-hour window is gone from the plan: not tracked. */
@@ -210,7 +213,7 @@ export function costSummary(turns: TurnCost[]): { turns: number; totalUsd: numbe
 
 /**
  * A token count option ("150000", "150k", "1,5 k", "150 000"); null when it reads as no count, so the caller keeps its
- * default. `Number('1.5k'.replace(/k$/, '000'))` used to read « 1.5k » as 1.5 tokens, a guard that asked before every send.
+ * default. `Number('1.5k'.replace(/k$/, '000'))` used to read "1.5k" as 1.5 tokens, a guard that asked before every send.
  */
 export function tokensOption(value: unknown): number | null {
   // A comma followed by exactly three digits is a thousands separator ("150,000"), not a decimal point.

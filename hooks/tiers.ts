@@ -8,10 +8,10 @@ import type { Effort, SeenModels, Tier } from '../types'
  * `effort` is the effort a classifier answer (and the default route) gives; `label` carries the criteria the classifier reads.
  */
 export const TIERS = [
-  { id: 'haiku', name: 'Haiku', effort: 'low', label: 'question simple de recherche ou de lecture (où, liste, montre, combien)' },
-  { id: 'sonnet', name: 'Sonnet', effort: 'medium', label: 'modification courante et précise (corriger, ajouter, renommer, texte, test, commit)' },
-  { id: 'opus', name: 'Opus', effort: 'medium', label: 'débogage, nouvelle fonctionnalité, refonte ou plan de travail' },
-  { id: 'fable', name: 'Fable', effort: 'xhigh', label: "décision d'architecture, cause racine ou arbitrage entre approches" },
+  { id: 'haiku', name: 'Haiku', effort: 'low', label: 'simple lookup or reading question (where, list, show, how many)' },
+  { id: 'sonnet', name: 'Sonnet', effort: 'medium', label: 'routine, precise edit (fix, add, rename, text, test, commit)' },
+  { id: 'opus', name: 'Opus', effort: 'medium', label: 'debugging, new feature, refactor or work plan' },
+  { id: 'fable', name: 'Fable', effort: 'xhigh', label: 'architecture decision, root cause or trade-off between approaches' },
 ] as const satisfies ReadonlyArray<{ id: Tier; name: string; effort: Effort; label: string }>
 
 // A Tier of the contract with no row here fails the typecheck (an unknown id already fails the `satisfies` above).

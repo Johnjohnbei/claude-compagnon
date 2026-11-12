@@ -54,7 +54,7 @@ let isBandShown = true
 let isClassifierOn = true
 const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
-/** Repositories the Projets card follows: the `projects` option, or the session's own project. */
+/** Repositories the Projects card follows: the `projects` option, or the session's own project. */
 let projects: string[] = []
 /** The directories the card follows, once read: what a tool call is matched against. */
 let followed: string[] = []
@@ -85,7 +85,7 @@ export const register: Register = (on, options) => {
   coldGuardTokens = tokensOption(options.coldGuardTokens) ?? 150_000
   on('session.start', async ($, e, next) => {
     await initGuards($)
-    await $.command.register({ name: 'compagnon', description: 'Panneau compagnon (args : keepwarm [heures|off], handoff, decisions, charge)', argumentHint: '[keepwarm [h|off] | handoff | decisions | charge]' })
+    await $.command.register({ name: 'compagnon', description: 'Compagnon pane (args: keepwarm [hours|off], handoff, decisions, load)', argumentHint: '[keepwarm [h|off] | handoff | decisions | load]' })
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void quietly(() => refreshRepos($))
     void quietly(() => refreshUsage($))
@@ -102,19 +102,20 @@ export const register: Register = (on, options) => {
     if (verb === 'keepwarm') {
       const hours = arg === 'off' ? null : Number(arg) > 0 ? Number(arg) : 2
       await setKeepWarm($, hours)
-      return { text: hours ? `Cache maintenu au chaud ${hours} h : un ping avant chaque expiration, arrêt s’il réécrit au lieu de lire.` : 'Maintien du cache coupé.' }
+      return { text: hours ? `Cache kept warm for ${hours} h: one ping before each expiry, stopped if a ping rewrites the cache instead of reading it.` : 'Cache keep-warm off.' }
     }
-    if (verb === 'charge') {
+    // `charge`: the verb's former (French) name, still read so a habit keeps working.
+    if (verb === 'load' || verb === 'charge') {
       const full = (await $.session.usage({ breakdown: 'full' })) as { context?: { breakdown?: unknown } }
       return { text: chargeReport(full.context?.breakdown) }
     }
     if (verb === 'decisions') return { text: routeReport(((await $.store.get('routeLog')) ?? []) as RouteRecord[]) }
     if (verb === 'handoff') {
       $.clock.after(300, () => void quietly(() => askHandoff($)))
-      return { text: 'Handoff demandé : le panneau propose ensuite de repartir d’une session neuve (touche c).' }
+      return { text: 'Handoff requested: the pane then offers to restart from a fresh session (key c).' }
     }
     await $.ui.open({ id: PANE, title: 'Compagnon' })
-    return { text: 'Panneau compagnon ouvert.' }
+    return { text: 'Compagnon pane open.' }
   })
 
   // The goal is measured on the native task list; `/goal clear` (or stop) ends it.
@@ -181,7 +182,7 @@ export const register: Register = (on, options) => {
       await quietly(async () => {
         const at = await $.clock.now()
         await update($, advisor, a => ({ calls: a.calls + 1, lastAt: at, pending: a.pending + 1 }))
-        await note($, 'advisor', 'consulté')
+        await note($, 'advisor', 'consulted')
       })
     return next(e)
   }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the row is stored as it is
@@ -189,7 +190,7 @@ export const register: Register = (on, options) => {
   // The delegation the router asked for (see delegationHint) holds even when Claude leaves the model out of the call.
   on('agent.spawn', async ($, e, next) => {
     const model = spawnModel(await read($, decision), e)
-    await quietly(() => note($, 'spawn', `${e.subagentType}${model ? ` imposé ${TIER_NAME[model]}` : e.model ? ` ${e.model}` : ''}`))
+    await quietly(() => note($, 'spawn', `${e.subagentType}${model ? ` set to ${TIER_NAME[model]}` : e.model ? ` ${e.model}` : ''}`))
     return next(model ? { ...e, model } : e)
   }).catch(($, e, next) => (next.called ? undefined : next(e))) // own failure: the subagent starts as asked
 
