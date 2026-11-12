@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1017" viewBox="0 0 760 1017" role="img" aria-label="The Compagnon pane">
+<title>The Compagnon pane</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#172033"/></marker></defs>
+<rect width="760" height="1017" fill="#ffffff"/>
+<text x="24" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#172033" font-weight="600" text-anchor="start">The Compagnon pane</text>
+<text x="736" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="end">schematic, not a screenshot</text>
+<text x="24" y="58" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">Top: the model chain. Below: the watch cards, the keys, then the band above the prompt.</text>
+<rect x="24" y="84" width="230" height="83" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="34" y="76" width="69.39999999999999" height="16" fill="#ffffff"/>
+<text x="40" y="89" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Advisor</text>
+<rect x="174.60000000000002" y="76" width="69.39999999999999" height="16" fill="#ffffff"/>
+<text x="238" y="89" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">2 calls</text>
+<text x="38" y="111" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">last 4 min ago</text>
+<text x="38" y="130" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">encrypted advice</text>
+<text x="38" y="149" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">~18% of the cost (advisor)</text>
+<rect x="272" y="84" width="464" height="102" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="282" y="76" width="53.0" height="16" fill="#ffffff"/>
+<text x="288" y="89" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Model</text>
+<rect x="681.2" y="76" width="44.8" height="16" fill="#ffffff"/>
+<text x="720" y="89" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">Opus</text>
+<text x="286" y="111" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">cache ▰▰▰▰▰▰▰▱▱▱  41 min · 86k</text>
+<text x="286" y="130" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">↳ handed to Haiku</text>
+<text x="286" y="149" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">effort high</text>
+<text x="286" y="168" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">load 31k · conversation 55k</text>
+<rect x="272" y="202" width="464" height="83" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="282" y="194" width="85.8" height="16" fill="#ffffff"/>
+<text x="288" y="207" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Decisions</text>
+<rect x="697.6" y="194" width="28.4" height="16" fill="#ffffff"/>
+<text x="720" y="207" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">14</text>
+<text x="286" y="229" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">tier Haiku · keywords · effort low</text>
+<text x="286" y="248" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">action hands to a subagent</text>
+<text x="286" y="267" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">keywords 11 · classifier 2 · default 1</text>
+<text x="30" y="303" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">↓ subagents</text>
+<rect x="24.0" y="321" width="229.33333333333334" height="64" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="34.0" y="313" width="61.199999999999996" height="16" fill="#ffffff"/>
+<text x="40.0" y="326" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">search</text>
+<text x="38.0" y="348" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">● 0:42</text>
+<text x="38.0" y="367" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">maps the repository</text>
+<rect x="265.33333333333337" y="321" width="229.33333333333334" height="64" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="275.33333333333337" y="313" width="44.8" height="16" fill="#ffffff"/>
+<text x="281.33333333333337" y="326" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">grep</text>
+<text x="279.33333333333337" y="348" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">✓ 0:18</text>
+<text x="279.33333333333337" y="367" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">call sites</text>
+<rect x="506.6666666666667" y="321" width="229.33333333333334" height="64" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="516.6666666666667" y="313" width="53.0" height="16" fill="#ffffff"/>
+<text x="522.6666666666667" y="326" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">audit</text>
+<text x="520.6666666666667" y="348" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">· idle</text>
+<text x="520.6666666666667" y="367" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">diff review, worktree</text>
+<rect x="24" y="401" width="712" height="83" rx="6" fill="#ffffff" stroke="#172033" stroke-width="1.3"/>
+<rect x="34" y="393" width="36.599999999999994" height="16" fill="#ffffff"/>
+<text x="40" y="406" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Log</text>
+<rect x="705.8" y="393" width="20.2" height="16" fill="#ffffff"/>
+<text x="720" y="406" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">3</text>
+<text x="38" y="428" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">14:02 route   keywords: warm cache of 86k: Opus keeps the lead…</text>
+<text x="38" y="447" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">14:02 agent   general-purpose set to Haiku</text>
+<text x="38" y="466" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">14:05 advisor consulted</text>
+<text x="24" y="506" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">agents [1 active] · advisor [2 calls] · decisions [14] · cost $1.84</text>
+<rect x="24" y="528" width="520" height="64" rx="6" fill="#ffffff" stroke="#9a5b00" stroke-width="1.3"/>
+<rect x="34" y="520" width="69.39999999999999" height="16" fill="#ffffff"/>
+<text x="40" y="533" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Context</text>
+<rect x="481.0" y="520" width="53.0" height="16" fill="#ffffff"/>
+<text x="528" y="533" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#9a5b00" font-weight="700" text-anchor="end">▲ 72%</text>
+<text x="38" y="555" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">▰▰▰▰▰▰▰▱▱▱  144k / 200k</text>
+<text x="38" y="574" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">↳ nearly full: /clear or handoff (h)</text>
+<rect x="24" y="606" width="520" height="45" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
+<rect x="34" y="598" width="94.0" height="16" fill="#ffffff"/>
+<text x="40" y="611" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">7-day plan</text>
+<rect x="497.4" y="598" width="36.599999999999994" height="16" fill="#ffffff"/>
+<text x="528" y="611" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">38%</text>
+<text x="38" y="633" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">▂▃▃▅▄▆▆  resets in 2 h 10</text>
+<rect x="24" y="665" width="520" height="45" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
+<rect x="34" y="657" width="44.8" height="16" fill="#ffffff"/>
+<text x="40" y="670" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Goal</text>
+<rect x="497.4" y="657" width="36.599999999999994" height="16" fill="#ffffff"/>
+<text x="528" y="670" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">3/5</text>
+<text x="38" y="692" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">▰▰▰▰▰▰▱▱▱▱  Write the migration · ~12 min</text>
+<rect x="24" y="724" width="520" height="45" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
+<rect x="34" y="716" width="69.39999999999999" height="16" fill="#ffffff"/>
+<text x="40" y="729" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Process</text>
+<rect x="448.2" y="716" width="85.8" height="16" fill="#ffffff"/>
+<text x="528" y="729" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="end">2 running</text>
+<text x="38" y="751" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">Bash 14 s · 1 agent</text>
+<rect x="24" y="783" width="520" height="45" rx="6" fill="#ffffff" stroke="#9a5b00" stroke-width="1.3"/>
+<rect x="34" y="775" width="102.19999999999999" height="16" fill="#ffffff"/>
+<text x="40" y="788" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Parallelism</text>
+<rect x="481.0" y="775" width="53.0" height="16" fill="#ffffff"/>
+<text x="528" y="788" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#9a5b00" font-weight="700" text-anchor="end">▲ 3/9</text>
+<text x="38" y="810" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">▰▰▰▱▱▱▱▱▱▱  4 reads in series</text>
+<rect x="24" y="842" width="520" height="45" rx="6" fill="#ffffff" stroke="#9a5b00" stroke-width="1.3"/>
+<rect x="34" y="834" width="77.6" height="16" fill="#ffffff"/>
+<text x="40" y="847" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#111111" font-weight="700" text-anchor="start">Projects</text>
+<rect x="472.8" y="834" width="61.199999999999996" height="16" fill="#ffffff"/>
+<text x="528" y="847" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#9a5b00" font-weight="700" text-anchor="end">▲ 1 +2</text>
+<text x="38" y="869" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="12.5" fill="#111111" font-weight="normal" text-anchor="start">my-repo main · 3 changed · ↑2</text>
+<text x="24" y="909" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="600" text-anchor="start">a auto · k keep warm · h handoff · r repos · p others</text>
+<text x="24" y="935" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">Band, one line above the prompt:</text>
+<rect x="24" y="945" width="712" height="32" rx="4" fill="#eef0f4" stroke="#c4c8d0"/>
+<text x="38" y="966" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#9a5b00" font-weight="normal" text-anchor="start">Opus · advisor 2 · $1.84 · ▲ ctx 72% · agents 1</text>
+<text x="24" y="995" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">▲ and the orange border mark a card that needs a look. Figures are examples.</text>
+</svg>

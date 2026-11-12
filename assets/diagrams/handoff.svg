@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1004" height="248" viewBox="0 0 1004 248" role="img" aria-label="Handoff">
+<title>Handoff</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#172033"/></marker></defs>
+<rect width="1004" height="248" fill="#ffffff"/>
+<text x="24" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#172033" font-weight="600" text-anchor="start">Handoff</text>
+<rect x="24" y="70" width="176" height="80" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="112.0" y="106.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">You press h</text>
+<text x="112.0" y="124.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">or /compagnon handoff</text>
+<path d="M200,110 L220,110" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="220" y="70" width="176" height="80" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="308.0" y="97.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Claude writes</text>
+<text x="308.0" y="115.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">the session state</text>
+<text x="308.0" y="133.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">to a .md file</text>
+<path d="M396,110 L416,110" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="416" y="70" width="176" height="80" rx="4" fill="#eef0f4" stroke="#172033" stroke-width="1.5"/>
+<text x="504.0" y="97.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Turn ends,</text>
+<text x="504.0" y="115.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">file found:</text>
+<text x="504.0" y="133.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">"Handoff ready"</text>
+<path d="M592,110 L612,110" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="612" y="70" width="176" height="80" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="700.0" y="106.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">You press c</text>
+<text x="700.0" y="124.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">"restart from handoff"</text>
+<path d="M788,110 L808,110" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="808" y="70" width="176" height="80" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="896.0" y="97.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">/clear, then the</text>
+<text x="896.0" y="115.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="normal" text-anchor="middle">fresh session</text>
+<text x="896.0" y="133.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="normal" text-anchor="middle">reads the file</text>
+<text x="24" y="186" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">The file goes to ~/.claude/mods-data/compagnon/handoffs/. It holds the goal, the state, the decisions, the files touched,</text>
+<text x="24" y="206" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">what remains and how to verify. No file after the turn: a toast says so and the handoff is dropped.</text>
+<text x="24" y="226" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">c waits while Claude is still working.</text>
+</svg>

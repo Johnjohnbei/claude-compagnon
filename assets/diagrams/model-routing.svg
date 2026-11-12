@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1074" height="580" viewBox="0 0 1074 580" role="img" aria-label="Model routing">
+<title>Model routing</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#172033"/></marker></defs>
+<rect width="1074" height="580" fill="#ffffff"/>
+<text x="24" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#172033" font-weight="600" text-anchor="start">Model routing</text>
+<rect x="24" y="60" width="200" height="52" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="124.0" y="82.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Request sent</text>
+<text x="124.0" y="100.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">from the prompt</text>
+<path d="M224,86 L262,86" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="262" y="60" width="210" height="52" rx="4" fill="#eef0f4" stroke="#172033" stroke-width="1.5"/>
+<text x="367.0" y="82.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Keyword rules</text>
+<text x="367.0" y="100.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">French and English</text>
+<path d="M472,86 L566,86" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="480" y="78" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">strong match</text>
+<rect x="566" y="60" width="216" height="52" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="674.0" y="91.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Tier from the rule</text>
+<path d="M367,112 L367,150" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="375" y="128" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">no match, or only</text>
+<text x="375" y="143" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">the weak edit rule</text>
+<rect x="262" y="150" width="210" height="52" rx="4" fill="#eef0f4" stroke="#172033" stroke-width="1.5"/>
+<text x="367.0" y="172.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Haiku classifier</text>
+<text x="367.0" y="190.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">option classify, on by default</text>
+<path d="M472,176 L566,176" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="480" y="168" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">answers in 3 s</text>
+<rect x="566" y="150" width="216" height="52" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="674.0" y="172.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Tier from the classifier</text>
+<text x="674.0" y="190.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">(edit rule: can only go up)</text>
+<path d="M367,202 L367,240" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="375" y="225" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">timeout, failure, no label</text>
+<rect x="262" y="240" width="210" height="46" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="367.0" y="268.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Opus (default)</text>
+<path d="M124,112 L124,160" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="132" y="140" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">skip</text>
+<rect x="24" y="160" width="200" height="64" rx="4" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.5"/>
+<text x="124.0" y="179.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">Short follow-up</text>
+<text x="124.0" y="197.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">(under 20 characters)</text>
+<text x="124.0" y="215.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">or /command: no route</text>
+<path d="M782,86 L880,86" fill="none" stroke="#172033" stroke-width="1.5"/>
+<path d="M782,176 L880,176" fill="none" stroke="#172033" stroke-width="1.5"/>
+<path d="M472,263 L880,263" fill="none" stroke="#172033" stroke-width="1.5"/>
+<path d="M880,86 L880,372 L836,372" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="300" y="346" width="536" height="52" rx="4" fill="#eef0f4" stroke="#172033" stroke-width="1.5"/>
+<text x="568.0" y="377.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Same tier as the main loop?  Is the cache free?</text>
+<path d="M360,398 L134,438" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="160" y="414" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">same tier</text>
+<path d="M568,398 L628,438" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="606" y="414" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">free</text>
+<path d="M780,398 L900,438" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="852" y="414" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">warm cache</text>
+<rect x="24" y="438" width="220" height="64" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="134.0" y="475.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Keep the model</text>
+<rect x="442" y="438" width="372" height="64" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="628.0" y="466.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Switch the main loop</text>
+<text x="628.0" y="484.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="normal" text-anchor="middle">cold, expired, just compacted, or under 40k</text>
+<rect x="830" y="438" width="220" height="64" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="940.0" y="466.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Delegate</text>
+<text x="940.0" y="484.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="normal" text-anchor="middle">subagent on the tier</text>
+<text x="24" y="540" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">A delegation adds a note to your message. A general-purpose subagent launched without a model gets the chosen tier.</text>
+<text x="24" y="560" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">Key a turns the automatic choice off: the decisions stop and the session returns to its own model.</text>
+</svg>

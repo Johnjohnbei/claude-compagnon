@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="420" viewBox="0 0 1120 420" role="img" aria-label="Collision guard">
+<title>Collision guard</title>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#172033"/></marker></defs>
+<rect width="1120" height="420" fill="#ffffff"/>
+<text x="24" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#172033" font-weight="600" text-anchor="start">Collision guard</text>
+<rect x="24" y="64" width="240" height="64" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="144.0" y="92.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Session A edits</text>
+<text x="144.0" y="110.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">src/app.ts</text>
+<rect x="24" y="170" width="240" height="64" rx="4" fill="#ffffff" stroke="#172033" stroke-width="1.5"/>
+<text x="144.0" y="198.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Session B is about</text>
+<text x="144.0" y="216.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">to edit src/app.ts</text>
+<path d="M264,96 L330,96 L330,150" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="272" y="86" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">writes its ledger</text>
+<rect x="300" y="150" width="300" height="104" rx="4" fill="#eef0f4" stroke="#172033" stroke-width="1.5"/>
+<text x="450.0" y="189.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="600" text-anchor="middle">Edited by another open session</text>
+<text x="450.0" y="207.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">in the last 30 min?</text>
+<text x="450.0" y="225.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">(both sessions run compagnon)</text>
+<path d="M264,202 L300,202" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M600,180 L660,112" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="618" y="136" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">no</text>
+<rect x="660" y="80" width="200" height="52" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="760.0" y="111.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Edit runs</text>
+<path d="M600,220 L660,230" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="616" y="244" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">yes</text>
+<rect x="660" y="170" width="200" height="52" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="760.0" y="201.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Proceed</text>
+<text x="872" y="200" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">edit runs; asks again on a newer edit</text>
+<rect x="660" y="238" width="200" height="52" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="760.0" y="269.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Move to a worktree</text>
+<text x="872" y="268" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">git-tracked files only</text>
+<rect x="660" y="306" width="200" height="52" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
+<text x="760.0" y="337.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">Cancel</text>
+<text x="872" y="336" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">Claude is told why and asks you</text>
+<text x="24" y="400" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">Yes opens a question headed "Collision". The Projects card also lists the clash: ▲ app.ts · "session title" 4 min.</text>
+</svg>
