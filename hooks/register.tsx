@@ -11,7 +11,7 @@ import { chargeReport } from './load-report'
 import { errorReport, isOptionOn, normPath, parseStatus, tokensOption, touchedRepos } from './logic'
 import { renderBand, renderPane, restorePaneMode } from './pane-view'
 import { coldSendGuard, isAliasSupported, routePrompt } from './prompt-routing'
-import { note, pollForever, quietly, recordError, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
+import { animateWhileMoving, note, pollForever, quietly, recordError, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -249,6 +249,7 @@ export const register: Register = (on, options) => {
         const at = await $.clock.now()
         await update($, waiting, () => ({ kind: e.notification_type, message: e.message.slice(0, 80), at }))
       })
+      void quietly($, () => animateWhileMoving($))
     }
     return next(e)
   }).catch(async ($, e, next) => {
@@ -284,6 +285,7 @@ export const register: Register = (on, options) => {
         await update($, turnStartedAt, () => at)
         await noteTurnStart($)
       })
+      void quietly($, () => animateWhileMoving($))
     return next(e)
   }).catch(async ($, e, next) => {
     await recordError($, next.error, 'turn.start')

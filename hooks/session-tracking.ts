@@ -7,7 +7,7 @@ import type { AgentRow, CacheInfo, CacheVerdict, ErrorEntry, LogKind, SeenModels
 import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
 import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
 import { contextParts } from './load-report'
-import { activityOf, cacheFromRelay, cacheState, costDelta, dayKey, errorText, hasFreshError, isFinished, moodOf, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples, type Mood } from './logic'
+import { activityOf, cacheFromRelay, cacheState, costDelta, dayKey, errorText, hasFreshError, isAnimated, isFinished, moodOf, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples, type Mood } from './logic'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -65,6 +65,26 @@ export async function errorsNow($: $): Promise<ErrorEntry[]> {
 export async function moodNow($: $): Promise<Mood> {
   const [now, ag, w, clash, started, ended, errors] = await Promise.all([$.clock.now(), read($, agents), read($, waiting), read($, collisions), read($, turnStartedAt), read($, lastTurnEnd), errorsNow($)])
   return moodOf({ isFailed: ag.some((a: { status: string }) => a.status === 'failed') || hasFreshError(errors, started, now), isWaiting: Boolean(w) || clash.length > 0, activity: activityOf(started, ended, ag, now) })
+}
+
+let isAnimating = false
+/**
+ * Redraws the pane every FRAME_MS while the mood moves (work, wait), and stops the moment it does not: nothing runs at rest.
+ * A frame is `$.ui.invalidate`, never a store or atom write: the pane derives its frame from the clock. One loop at a time;
+ * called whenever a mood that moves may have begun (a turn, a prompt, an agent, the poll).
+ */
+export async function animateWhileMoving($: $): Promise<void> {
+  if (isAnimating) return
+  isAnimating = true
+  try {
+    while (isAnimated(await moodNow($))) {
+      // A wait that rejects is the environment going away (a reload): the loop ends with it.
+      if (!(await $.clock.sleep(FRAME_MS).then(() => true, () => false))) return
+      $.ui.invalidate('ui.render')
+    }
+  } finally {
+    isAnimating = false
+  }
 }
 
 /**
@@ -208,6 +228,7 @@ export async function pollForever($: $) {
       await Promise.all([quietly($, () => refreshAgents($)), quietly($, () => refreshUsage($)), quietly($, () => refreshCache($)), quietly($, () => refreshCollisions($))])
       // Not awaited: a slow ping must not hold the refreshes and the ledger's heartbeat (keepWarmTick skips a second ping).
       void quietly($, async () => keepWarmTick($, await read($, lastTurnEnd), ttlMs(await read($, cache))))
+      void quietly($, () => animateWhileMoving($)) // an agent or a collision may have begun a mood that moves
       if (n % 4 === 0) await writeLedger($) // the ledger's heartbeat: a ledger quiet for 15 min is a closed session
     })
   }

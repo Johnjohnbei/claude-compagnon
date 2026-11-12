@@ -5,6 +5,7 @@ import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLab
 import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { chargeReport, contextParts } from './load-report'
 import { SPRITE_COLUMNS, SPRITE_ROWS, spriteCells, spriteRuns } from './companion-sprite'
+import { FRAME_MS } from './session-tracking'
 import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, clockLabel, errorSummary, errorText, FRESH_ERROR_MS, goalProgress, hasFreshError, isAnimated, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, moodOf, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
@@ -1179,4 +1180,51 @@ test('each mood is read from the real state, in the head', async ($, on) => {
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: BUSY_ALL.agents })).toMatch(/Something failed/)
   expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000 })).toMatch(/Turn done · 4 s ago/)
   expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000 }, LIVE + DONE_MS)).toMatch(/Resting · idle 24 s/)
+})
+
+test('the pane redraws about twice a second while a turn runs, stops when it ends, and writes nothing to the store', async ($, on) => {
+  const clock = mock.clock(on, { now: LIVE })
+  let redraws = 0
+  let writes = 0
+  on('ui.invalidate', () => {
+    redraws += 1
+    return { value: undefined } as never
+  })
+  on('store.set', () => {
+    writes += 1
+    return { value: undefined }
+  })
+  const atoms = new Map<string, unknown>()
+  const versions = new Map<string, number>()
+  const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  on('state.get', (_, e) => {
+    const key = (e as unknown as { key: string }).key
+    return { value: { value: { shape: 'v1', value: atoms.has(key) ? atoms.get(key) : arrays.includes(key) ? [] : ['lastTurnEnd', 'turnStartedAt', 'tick', 'costMark'].includes(key) ? 0 : null }, version: versions.get(key) ?? 1 } }
+  })
+  on('state.set', (_, e) => {
+    const { key, value } = e as unknown as { key: string; value: { value: unknown } }
+    atoms.set(key, value.value)
+    versions.set(key, (versions.get(key) ?? 1) + 1)
+    return { value: { isSet: true, version: versions.get(key) } } as never
+  })
+  on('store.get', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 'session-1' }))
+  on('session.start', () => ({ cwd: 'C:/work/repo' }))
+  on('turn.start', (_, e) => ({ turnId: (e as unknown as { turnId?: string }).turnId ?? 't1' }) as never)
+  on('turn.complete', () => ({}) as never)
+  await clock.settle()
+  expect(redraws).toBe(0) // at rest nothing is redrawn
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  await clock.advance(2_000)
+  expect(redraws).toBe(Math.floor(2_000 / FRAME_MS)) // a redraw per frame while the turn runs
+  expect(FRAME_MS).toBeGreaterThanOrEqual(100) // the engine allows ten a second
+  await clock.advance(1_000)
+  expect(redraws).toBe(Math.floor(3_000 / FRAME_MS))
+  // the turn ends: the loop stops at its next look, and no later redraw comes
+  atoms.set('turnStartedAt', 0)
+  await clock.advance(FRAME_MS)
+  const stopped = redraws
+  await clock.advance(10_000)
+  expect(redraws).toBe(stopped)
+  expect(writes).toBe(0) // a frame is a redraw, never a store write
 })
