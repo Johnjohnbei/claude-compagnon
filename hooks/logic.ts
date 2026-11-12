@@ -369,7 +369,8 @@ export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; 
  * default. `Number('1.5k'.replace(/k$/, '000'))` used to read « 1.5k » as 1.5 tokens, a guard that asked before every send.
  */
 export function tokensOption(value: unknown): number | null {
-  const m = String(value ?? '').replace(/\s+/g, '').replace(',', '.').match(/^(\d+(?:\.\d+)?)(k?)$/i)
+  // A comma followed by exactly three digits is a thousands separator ("150,000"), not a decimal point.
+  const m = String(value ?? '').replace(/\s+/g, '').replace(/,(?=\d{3}(?!\d))/g, '').replace(',', '.').match(/^(\d+(?:\.\d+)?)(k?)$/i)
   return m ? Math.round(Number(m[1]) * (m[2] ? 1000 : 1)) : null
 }
 

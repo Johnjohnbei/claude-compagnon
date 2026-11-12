@@ -234,6 +234,8 @@ test('a token count option reads decimals, a k and a thousands space; anything e
   expect(tokensOption('1.5k')).toBe(1_500) // it used to read as 1.5 tokens: a guard before every cold send
   expect(tokensOption('1,5 k')).toBe(1_500)
   expect(tokensOption('150 000')).toBe(150_000)
+  expect(tokensOption('150,000')).toBe(150_000) // a thousands separator read as a decimal gave 150 tokens: a question before every cold send
+  expect(tokensOption('1,5k')).toBe(1_500)
   expect(tokensOption('0')).toBe(0) // 0 = guard off, a real value
   expect(tokensOption(200000)).toBe(200_000)
   for (const v of ['', undefined, null, 'abc', '-5', '1e5', '150kk']) expect(tokensOption(v)).toBe(null)
