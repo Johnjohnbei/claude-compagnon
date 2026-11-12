@@ -9,7 +9,7 @@ import { TIER_NAME } from './tiers'
 import { routeReport, spawnModel } from './request-routing'
 import { chargeReport } from './load-report'
 import { errorReport, isOptionOn, normPath, parseStatus, summarizeParallel, tokensOption, touchedRepos } from './logic'
-import { renderBand, renderPane } from './pane-view'
+import { renderBand, renderPane, restorePaneMode } from './pane-view'
 import { coldSendGuard, isAliasSupported, routePrompt } from './prompt-routing'
 import { note, pollForever, quietly, recordError, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
 
@@ -91,6 +91,7 @@ export const register: Register = (on, options) => {
     void $.ui.open({ id: PANE, title: 'Compagnon' })
     void quietly($, () => refreshRepos($))
     void quietly($, () => refreshUsage($))
+    void quietly($, () => restorePaneMode($))
     void quietly($, async () => {
       const known = ((await $.store.get('seenModels')) ?? {}) as SeenModels
       await update($, seen, () => known)

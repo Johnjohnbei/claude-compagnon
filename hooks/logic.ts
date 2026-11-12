@@ -247,10 +247,10 @@ export const sessionErrors = (list: ErrorEntry[], session: string): ErrorEntry[]
 
 const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
-/** The status line's one item: `⚠ 2 errors, last: <message cut short>`; null when there is none. */
+/** The status line's one item: `✕ 2 errors, last: <message cut short>`; null when there is none. */
 export const errorSummary = (list: ErrorEntry[]): string | null => {
   const last = list[list.length - 1]
-  return last ? `⚠ ${list.length} error${list.length > 1 ? 's' : ''}, last: ${cut(last.message, 48)}` : null
+  return last ? `✕ ${list.length} error${list.length > 1 ? 's' : ''}, last: ${cut(last.message, 48)}` : null
 }
 
 /** What `/compagnon errors` prints: the last twenty, each with its date and time, newest last. */

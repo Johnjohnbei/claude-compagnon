@@ -23,9 +23,9 @@ export function ActivityText(E: El, a: Activity, now: number) {
 export function Band(E: El, label: string, adv: AdvisorStat, totalUsd: number, contextPct: number | null, liveAgents: number, errors = 0) {
   const { Text } = E
   const level = contextPct === null ? 'ok' : levelOf(contextPct)
-  // ▲ marks the context that needs a look, as on the cards: the colour alone does not carry the state. ⚠ N: the mod's own
+  // ▲ marks the context that needs a look, as on the cards: the colour alone does not carry the state. ✕ N: the mod's own
   // errors this session, the count only (the Errors row and `/compagnon errors` say which).
-  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${TONE[level].mark}ctx ${Math.round(contextPct)}%`, liveAgents > 0 ? `agents ${liveAgents}` : null, errors > 0 ? `⚠ ${errors}` : null]
+  const parts = [label, adv.calls > 0 ? `advisor ${adv.calls}` : null, totalUsd > 0 ? usd(totalUsd) : null, contextPct === null ? null : `${TONE[level].mark}ctx ${Math.round(contextPct)}%`, liveAgents > 0 ? `agents ${liveAgents}` : null, errors > 0 ? `✕ ${errors}` : null]
   return <Text color={TONE[level].color} dimColor={level === 'ok'} wrap="truncate-end">{parts.filter(Boolean).join(' · ')}</Text>
 }
 

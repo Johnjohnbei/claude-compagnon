@@ -674,8 +674,8 @@ test('the error log keeps the last twenty, each message on one line and cut shor
   expect(errorText('plain')).toBe('plain')
   expect(errorText(undefined)).toBe('unknown error')
   expect(errorSummary([])).toBe(null)
-  expect(errorSummary([{ at: NOW, session: 's1', message: 'agent list down' }])).toBe('⚠ 1 error, last: agent list down')
-  expect(errorSummary(list.slice(-2))).toBe('⚠ 2 errors, last: failure 23')
+  expect(errorSummary([{ at: NOW, session: 's1', message: 'agent list down' }])).toBe('✕ 1 error, last: agent list down')
+  expect(errorSummary(list.slice(-2))).toBe('✕ 2 errors, last: failure 23')
   expect(errorSummary([{ at: NOW, session: 's1', message: 'y'.repeat(100) }])?.endsWith('…')).toBe(true)
   expect(errorReport([])).toBe('No error recorded.')
   const report = errorReport(list.slice(-2))
@@ -734,7 +734,7 @@ test('a failed refresh is recorded and shown on the status line, a good loop add
   const row = await ui.find({ type: 'Text', text: /^Errors {5}✕ 2$/ })
   expect(row?.text).toMatch(/✕ 2$/)
   await ui.press({ key: 'expand' })
-  const line = /^⚠ 2 errors, last: no implementation for agent\.list$/
+  const line = /^✕ 2 errors, last: no implementation for agent\.list$/
   expect((await ui.find({ type: 'Text', text: line }))?.props.color).toBe('error')
   await ui.unmount()
   const band = await $.ui.mount({
@@ -743,7 +743,7 @@ test('a failed refresh is recorded and shown on the status line, a good loop add
     surface: 'terminal',
     props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
   } as never)
-  expect((await band.find({ type: 'Text', text: /· ⚠ 2$/ }))?.text).toMatch(/⚠ 2$/)
+  expect((await band.find({ type: 'Text', text: /· ✕ 2$/ }))?.text).toMatch(/✕ 2$/)
   await band.unmount()
   // `/compagnon errors` lists them with their date and time
   const listed = (await $.command.run({ command: 'compagnon', args: 'errors' } as never)) as { text?: string }
@@ -870,5 +870,64 @@ test('the activity reads working while a turn or an agent runs, done for a few s
   now = LIVE + DONE_MS
   ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^✓ done$|working/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+/** Mocks a session start over a store that may be pre-seeded, or broken for the `paneExpanded` key only (the rest of the pane needs the store); `e` presses are written to the same store. */
+async function startSession($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], store: Map<string, unknown>, isStoreBroken = false) {
+  on('store.get', (_, e) => {
+    const { key } = e as unknown as { key: string }
+    if (isStoreBroken && key === 'paneExpanded') throw new Error('store down')
+    return { value: store.get(key) }
+  })
+  on('store.set', (_, e) => {
+    const { key, value } = e as unknown as { key: string; value: unknown }
+    if (isStoreBroken && key === 'paneExpanded') throw new Error('store down')
+    store.set(key, value)
+    return { value: undefined }
+  })
+  mock.clock(on, { now: LIVE })
+  mock.env(on, { USERPROFILE: 'C:/home/someone', TEMP: 'C:/tmp' })
+  on('session.id', () => ({ value: 'session-1' }))
+  on('session.root', () => ({ value: 'C:/work/repo' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { context: { percent: 10, tokens: 20_000, window: 200_000 }, rateLimits: [], cost: { usd: 0 }, startedAt: LIVE } }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('command.register', () => ({ value: { command: 'compagnon' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('fs.read', () => {
+    throw new Error('no relay file')
+  })
+  on('agent.list', () => ({ value: [] }))
+  on('session.start', () => ({ cwd: 'C:/work/repo' }))
+  await $.session.start({ cwd: 'C:/work/repo', surface: 'terminal', isInteractive: true })
+}
+
+test('the pane remembers e between sessions: unfolded last time, it reopens unfolded', async ($, on) => {
+  const store = new Map<string, unknown>()
+  await startSession($, on, store)
+  const first = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await first.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
+  await first.press({ key: 'expand' })
+  expect(store.get('paneExpanded')).toBe(true)
+  await first.unmount()
+})
+
+test('a new session opens unfolded when the store says paneExpanded, and compact otherwise', async ($, on) => {
+  await startSession($, on, new Map([['paneExpanded', true]]))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^╭─ Model ─/ }))?.text).toMatch(/^╭─ Model ─/)
+  await ui.press({ key: 'expand' }) // folding is remembered too
+  expect((await ui.find({ type: 'Button', key: 'expand' }))?.props.label).toBe('expand')
+  await ui.unmount()
+})
+
+test('a broken store leaves the pane compact and raises nothing', async ($, on) => {
+  const store = new Map<string, unknown>([['paneExpanded', true]])
+  await startSession($, on, store, true)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.findAll({ type: 'Text', text: /^╭─/ })).toEqual([])
+  await ui.press({ key: 'expand' }) // the toggle itself still works, only its memory fails
+  expect(store.get('paneExpanded')).toBe(true) // untouched: nothing was written
   await ui.unmount()
 })

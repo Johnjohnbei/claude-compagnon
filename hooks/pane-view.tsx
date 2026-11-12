@@ -42,6 +42,11 @@ const isExpanded = atom({ plugin: 'compagnon', key: 'isExpanded' } as const, fal
 
 type $ = EngineInterface
 
+/** The last choice survives sessions: `session.start` reads it back from the store (`paneExpanded`, default compact). */
+export async function restorePaneMode($: $) {
+  if ((await $.store.get('paneExpanded')) === true) await update($, isExpanded, () => true)
+}
+
 /** The band above the prompt: one line, the figures that say whether to open the pane. */
 export async function renderBand($: $, E: El) {
   await read($, tick)
@@ -85,7 +90,10 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
       {ErrorsCard(E, width, errors, mode)}
       {ProjectsCard(E, width, rp, used, clash, now, isOpen, mode)}
       {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen, isExpanded: Boolean(isOpenAll) }, {
-        expand: () => void update($, isExpanded, v => !v),
+        expand: () => void quietly($, async () => {
+          await update($, isExpanded, () => !isOpenAll)
+          await $.store.set('paneExpanded', !isOpenAll)
+        }),
         auto: async () => {
           await $.store.set('auto', !isAuto)
           if (isAuto) await update($, pin, () => null) // off = back to the session's own model
