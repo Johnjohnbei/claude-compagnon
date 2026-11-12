@@ -4,7 +4,7 @@
 import type { Elements, RenderChildren } from 'claude-code'
 
 import type { AdvisorStat, AgentRow, BackgroundTask, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Goal, Handoff, KeepWarm, Level, LogEntry, LogKind, ParallelSummary, Pin, RepoState, RouteRecord, RunningTool, SeenModels, TaskRow, TurnCost, Usage, Waiting } from '../types'
-import { SOURCE_NAME, TIER_NAME, ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
+import { SOURCE_NAME, TIER_NAME, TIERS_STRONGEST_FIRST, ageLabel, costSummary, goalProgress, lastSevenDays, levelOf, modelLabel, resetLabel, sparkline, tierOf, type DailySamples } from './logic'
 
 export type El = Pick<Elements[keyof Elements], 'Box' | 'Text' | 'Button'>
 
@@ -217,7 +217,7 @@ export function Schema(E: El, s: SchemaInput) {
   const effort = s.pin?.effort ?? s.decision?.effort
   const fixed = s.parts.filter(p => p.name !== 'Messages')
   const messages = s.parts.find(p => p.name === 'Messages')
-  const versions = (['fable', 'opus', 'sonnet', 'haiku'] as const).filter(t => s.seen[t]).map(t => modelLabel(s.seen[t] as string))
+  const versions = TIERS_STRONGEST_FIRST.filter(t => s.seen[t]).map(t => modelLabel(s.seen[t] as string))
   const release = [...s.journal].reverse().find(l => l.kind === 'release' && s.now - l.at < DAY)
   const extra = [
     release ? <Text color="warning" wrap="truncate-end">↳ nouvelle version : {release.text}</Text> : null,

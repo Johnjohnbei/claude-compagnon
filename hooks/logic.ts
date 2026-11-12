@@ -1,13 +1,37 @@
 // Pure logic of the companion pane: no `$`, so the tests run it directly.
 import type { Advice, CacheInfo, CacheVerdict, Collision, CtxPart, Decision, Effort, Ledger, Level, LogEntry, ParallelSummary, RepoState, RouteRecord, SeenModels, Source, TaskRow, Tier, ToolSpan, TurnCost } from '../types'
 
-const RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
+/**
+ * The model tiers, weakest first: a tier's index is its rank. Everything about a tier derives from this table (ranks, display
+ * names, detection in a model id, classifier labels and efforts), so a new tier is one row here plus its id in the `Tier`
+ * union of types/index.d.ts (the contract file may not import, so the union cannot be derived; the typecheck ties the two).
+ * `effort` is the effort a classifier answer (and the default route) gives; `label` carries the criteria the classifier reads.
+ */
+export const TIERS = [
+  { id: 'haiku', name: 'Haiku', effort: 'low', label: 'question simple de recherche ou de lecture (où, liste, montre, combien)' },
+  { id: 'sonnet', name: 'Sonnet', effort: 'medium', label: 'modification courante et précise (corriger, ajouter, renommer, texte, test, commit)' },
+  { id: 'opus', name: 'Opus', effort: 'medium', label: 'débogage, nouvelle fonctionnalité, refonte ou plan de travail' },
+  { id: 'fable', name: 'Fable', effort: 'xhigh', label: "décision d'architecture, cause racine ou arbitrage entre approches" },
+] as const satisfies ReadonlyArray<{ id: Tier; name: string; effort: Effort; label: string }>
+
+// A Tier of the contract with no row here fails the typecheck (an unknown id already fails the `satisfies` above).
+const everyTierHasARow: [Exclude<Tier, (typeof TIERS)[number]['id']>] extends [never] ? true : never = true
+void everyTierHasARow
+
+/** The tier an unrecognised request or model id falls back on. */
+export const DEFAULT_TIER: Tier = 'opus'
+
+const rankOf = (tier: Tier): number => TIERS.findIndex(t => t.id === tier)
+const byTier = <V>(pick: (t: (typeof TIERS)[number]) => V) => Object.fromEntries(TIERS.map(t => [t.id, pick(t)])) as Record<Tier, V>
+
+/** Tier ids strongest first: the order a model id is searched in, and the order the card lists the releases seen. */
+export const TIERS_STRONGEST_FIRST: Tier[] = TIERS.map(t => t.id).reverse()
 
 // The pin sends the tier name itself through `turn.step` (`model: 'opus'`): the engine resolves the alias, and
 // ANTHROPIC_DEFAULT_*_MODEL repoints it. No model id and no version is written in this mod, so a release changes nothing here.
 
 /** Tier names as shown. A version is never written here: it is read from the id the engine reports (`modelLabel`). */
-export const TIER_NAME: Record<Tier, string> = { fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }
+export const TIER_NAME: Record<Tier, string> = byTier(t => t.name)
 
 /** "5.5" out of "claude-opus-5-5" or "claude-sonnet-4-5-20250929"; null for an alias or an id with no version. */
 export const versionOf = (model: string): string | null =>
@@ -39,7 +63,7 @@ export function supportsAlias(version: unknown): boolean {
 // architecture, Opus for complex reasoning, Sonnet for daily coding, Haiku for simple tasks) and the former
 // rules of an earlier router kept here: upgrade freely, downgrade only on a small context, never route subagents.
 // ponytail: keyword rules, zero token (user choice 2026-11-05); a Haiku classifier if the hit rate disappoints.
-const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
+export const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
   { tier: 'fable', effort: 'xhigh', need: 'Architecture ou cause racine', re: /architectur|cause racine|root cause|ambigu|stratégi|audit 360|refonte globale|arbitrage/i },
   { tier: 'opus', effort: 'high', need: 'Débogage', re: /\bbugs?\b|débog|debug|crash|régression|cassé|ne marche|plante|erreur/i },
   // A request that opens with a lookup word or verb is a lookup, whatever it names (« liste les fichiers de tests », « cartographie ce dépôt »): above the edit and feature rules,
@@ -52,15 +76,17 @@ const RULES: Array<{ tier: Tier; effort: Effort; need: string; re: RegExp }> = [
 /** The cache is per model: below this, dropping to a cheaper model still pays. */
 export const CACHE_KEEP_TOKENS = 40_000
 
-export const tierOf = (model: string): Tier =>
-  (['fable', 'opus', 'sonnet', 'haiku'] as const).find(t => model.toLowerCase().includes(t)) ?? 'opus'
+/** The tier a model id names (`claude-opus-5-5`, `sonnet`), or undefined when it names none. */
+const tierIn = (model: string): Tier | undefined => TIERS_STRONGEST_FIRST.find(t => model.toLowerCase().includes(t))
+
+export const tierOf = (model: string): Tier => tierIn(model) ?? DEFAULT_TIER
 
 /** The model a request needs; null for a follow-up ("ok", "continue") or a slash command, which keep the model. */
 export function advise(text: string): Advice | null {
   const ask = text.trim()
   if (ask.length < 20 || ask.startsWith('/')) return null
   const rule = RULES.find(r => r.re.test(ask))
-  const found = rule ?? { tier: 'opus' as Tier, effort: 'medium' as Effort, need: 'Demande générale' }
+  const found = rule ?? { tier: DEFAULT_TIER, effort: CLASSIFIED_EFFORT[DEFAULT_TIER], need: 'Demande générale' }
   return { tier: found.tier, effort: found.effort, need: found.need, reason: `${found.need} : ${TIER_NAME[found.tier]}, effort ${found.effort}`, source: rule ? 'keywords' : 'default' }
 }
 
@@ -306,7 +332,7 @@ const compareVersions = (a: string, b: string): number => {
  * the remembered id stands. An id that names no tier teaches nothing; an unseen tier is learned silently.
  */
 export function releaseOf(seen: SeenModels, model: string): { seen: SeenModels; changed: { tier: Tier; from: string; to: string } | null } {
-  const tier = (['fable', 'opus', 'sonnet', 'haiku'] as const).find(t => model.toLowerCase().includes(t))
+  const tier = tierIn(model)
   if (!tier || seen[tier] === model) return { seen, changed: null }
   const from = seen[tier]
   if (!from || !versionOf(from)) return { seen: { ...seen, [tier]: model }, changed: null }
@@ -322,16 +348,11 @@ export const isOptionOn = (value: unknown): boolean => value !== false && String
  * The label carries the criteria, so the model reads what each tier is for. Measured on 30 synthetic French requests:
  * 29/30 against 22/30 for the keywords alone, 10/10 against 3/10 on the ones without a keyword.
  */
-export const CLASSIFY_LABELS: Record<Tier, string> = {
-  haiku: 'question simple de recherche ou de lecture (où, liste, montre, combien)',
-  sonnet: 'modification courante et précise (corriger, ajouter, renommer, texte, test, commit)',
-  opus: 'débogage, nouvelle fonctionnalité, refonte ou plan de travail',
-  fable: "décision d'architecture, cause racine ou arbitrage entre approches",
-}
+export const CLASSIFY_LABELS: Record<Tier, string> = byTier(t => t.label)
 export const CLASSIFY_TIMEOUT_MS = 3000
-const CLASSIFIED_EFFORT: Record<Tier, Effort> = { haiku: 'low', sonnet: 'medium', opus: 'medium', fable: 'xhigh' }
+const CLASSIFIED_EFFORT: Record<Tier, Effort> = byTier(t => t.effort)
 
-export const tierOfLabel = (label: string): Tier | undefined => (Object.keys(CLASSIFY_LABELS) as Tier[]).find(t => CLASSIFY_LABELS[t] === label)
+export const tierOfLabel = (label: string): Tier | undefined => TIERS.find(t => t.label === label)?.id
 
 /** The advice a classifier answer makes. */
 export const adviseClassified = (tier: Tier): Advice => ({
@@ -344,7 +365,6 @@ export const adviseClassified = (tier: Tier): Advice => ({
 
 /** The keyword rule whose hit is the weakest signal (« ajoute », « texte », « commit » appear in features and decisions too). */
 const EDIT_NEED = 'Édition courante'
-const TIER_RANK: Record<Tier, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 }
 
 /** Whether the classifier is worth a call: nothing recognised the request, or only the weak edit rule did. */
 export const needsClassifier = (advice: Advice): boolean => advice.source === 'default' || advice.need === EDIT_NEED
@@ -357,7 +377,7 @@ export const needsClassifier = (advice: Advice): boolean => advice.source === 'd
 export function settle(keyword: Advice, classified: Tier | undefined): Advice {
   if (!classified) return keyword
   if (keyword.source === 'default') return adviseClassified(classified)
-  return TIER_RANK[classified] > TIER_RANK[keyword.tier] ? adviseClassified(classified) : keyword
+  return rankOf(classified) > rankOf(keyword.tier) ? adviseClassified(classified) : keyword
 }
 
 export const SOURCE_NAME: Record<Source, string> = { keywords: 'mots-clés', classifier: 'classifieur', default: 'défaut' }

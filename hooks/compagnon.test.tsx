@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { CacheInfo, Ledger, LogEntry } from '../types'
-import { advise, adviseClassified, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
+import { advise, adviseClassified, cacheFromRelay, cacheState, chargeReport, CLASSIFY_LABELS, DEFAULT_TIER, RULES, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, collisionFor, collisionsWith, contextParts, costDelta, costSummary, delegationHint, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, modelLabel, needsClassifier, needsColdGuard, parseStatus, pingMissed, pushLog, pushRoute, recordSample, releaseOf, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, summarizeParallel, supportsAlias, tierOfLabel, touchedRepos, ttlMs, versionOf, withoutPin } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -375,6 +375,27 @@ test('a classifier answer maps back to its tier, and only an exact label counts'
   expect(advice.tier).toBe('fable')
   expect(advice.effort).toBe('xhigh')
   expect(adviseClassified('haiku').effort).toBe('low')
+})
+
+test('every tier the rules, the labels and the names use exists in TIERS, and an unknown id falls back on the default', async () => {
+  const ids = TIERS.map(t => t.id) as string[]
+  expect(new Set(ids).size).toBe(ids.length)
+  for (const rule of RULES) expect(ids).toContain(rule.tier)
+  expect(Object.keys(CLASSIFY_LABELS)).toEqual(ids)
+  expect(Object.keys(TIER_NAME)).toEqual(ids)
+  expect(new Set(Object.values(CLASSIFY_LABELS)).size).toBe(ids.length) // two equal labels would make tierOfLabel ambiguous
+  expect(ids).toContain(DEFAULT_TIER)
+  // The table reproduces the former hand-written values: same order for the classifier, same ranks, names and efforts.
+  expect(ids).toEqual(['haiku', 'sonnet', 'opus', 'fable'])
+  expect(TIERS_STRONGEST_FIRST).toEqual(['fable', 'opus', 'sonnet', 'haiku'])
+  expect(TIERS.map(t => `${t.name}:${t.effort}`)).toEqual(['Haiku:low', 'Sonnet:medium', 'Opus:medium', 'Fable:xhigh'])
+  for (const model of ['', 'gpt-5', 'mistral-large-2', 'claude-unknown-9-9']) {
+    expect(tierOf(model)).toBe(DEFAULT_TIER)
+    expect(releaseOf({}, model)).toEqual({ seen: {}, changed: null })
+    expect(modelLabel(model).startsWith(TIER_NAME[DEFAULT_TIER])).toBe(true)
+  }
+  expect(tierOf('claude-haiku-5-5')).toBe('haiku')
+  expect(advise('rédige une réponse pour ce message reçu ce matin')?.tier).toBe(DEFAULT_TIER)
 })
 
 test('the routing record keeps the first words only, the last two hundred, and reports by layer', async () => {
