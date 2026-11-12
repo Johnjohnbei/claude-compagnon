@@ -10,7 +10,7 @@ A Claude Code mod that opens a side pane with every session, picks the model eac
 
 ![The Compagnon pane: compact rows by default, full cards with e](assets/diagrams/panel.svg)
 
-The pane opens **compact**: one row per subject, each with one key value.
+The pane opens **compact** the first time: one row per subject, each with one key value. It remembers your last choice (`e`) between sessions.
 
 | Row | Key value | Unfolded with `e` |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ The pane opens **compact**: one row per subject, each with one key value.
 
 Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents.
 
-Colours are kept to four, each with its symbol so a state reads without colour: neutral text and borders when all is well, the accent with `●` for what is active, amber with `▲` for what needs a look, red with `✕` for what failed. The band and `/compagnon errors` count the mod's own errors with `⚠`.
+Colours are kept to four, each with its symbol so a state reads without colour: neutral text and borders when all is well, the accent with `●` for what is active, amber with `▲` for what needs a look, red with `✕` for what failed. The band and `/compagnon errors` count the mod's own errors with `✕`.
 
 When to act:
 
@@ -35,7 +35,7 @@ When to act:
 | `Process ▲` or `✕`: unfolded, a tool, task or agent marked `▲` or `✕` | Press `e` and check it. `stop` ends a background task, `view` opens an agent. |
 | `Process … · 4 reads in series` | Ask Claude to batch its reads or hand them to a subagent. |
 | `Projects ▲ 1 · collision`, unfolded: `▲ file · "session"` | Another open session edited the same file. Coordinate before going on. |
-| `Errors ✕ 2`, or `⚠ 2` in the band | The mod hit an error. Run `/compagnon errors`. |
+| `Errors ✕ 2`, or `✕ 2` in the band | The mod hit an error. Run `/compagnon errors`. |
 
 ## Quick start
 
@@ -111,7 +111,7 @@ Claude is told why the edit did not run: on `Cancel` it leaves the file alone an
 ![Errors: recorded, counted in the band, listed by a command](assets/diagrams/errors.svg)
 
 When one of the mod's own hooks fails, your prompt or tool call still goes through, and the failure is recorded.
-The band shows `⚠ 2`, the pane's `Errors` row shows `✕ 2`, and unfolded (`e`) `⚠ 2 errors, last: <message>`.
+The band shows `✕ 2`, the pane's `Errors` row shows `✕ 2`, and unfolded (`e`) `✕ 2 errors, last: <message>`.
 Run `/compagnon errors` to read the list with dates and times.
 
 ## Commands
@@ -169,7 +169,7 @@ The reply starts like: `Startup load: 31.2k tokens, plus the conversation 55.0k 
 
 ### `/compagnon errors`
 
-Prints the mod's recorded errors, newest last, with date and time. Use it when the band shows `⚠` or the `Errors` row is not `none`.
+Prints the mod's recorded errors, newest last, with date and time. Use it when the band shows `✕` or the `Errors` row is not `none`.
 
 ```
 /compagnon errors
@@ -181,7 +181,7 @@ Reply: `No error recorded.` or `2 errors (last 20 kept, newest last):` followed 
 
 | Key | Label | Does |
 | --- | --- | --- |
-| `e` | `expand` / `collapse` | Unfolds every row into its full card, or folds them back. The pane opens compact with each session. |
+| `e` | `expand` / `collapse` | Unfolds every row into its full card, or folds them back. The pane reopens as you left it: compact the first time, then the last choice is remembered between sessions. |
 | `a` | `auto` / `auto off` | Turns automatic model choice off or on. Off returns the main loop to the session's own model. |
 | `k` | `keep warm` / `stop warming` | Keeps the cache warm for 2 hours, or stops it. |
 | `h` | `handoff` | Asks Claude for a handoff file. |

@@ -11,9 +11,9 @@
 <text x="420.0" y="110.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#111111" font-weight="normal" text-anchor="middle">message only, last 20 kept</text>
 <path d="M550,96 L600,96" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
 <rect x="600" y="52" width="420" height="40" rx="4" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.5"/>
-<text x="810.0" y="77.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">band:  … · ctx 41% · ⚠ 2</text>
+<text x="810.0" y="77.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">band:  … · ctx 41% · ✕ 2</text>
 <rect x="600" y="100" width="420" height="40" rx="4" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.5"/>
-<text x="810.0" y="125.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">pane Errors row: ✕ 2, unfolded (e): ⚠ 2 errors, last: …</text>
+<text x="810.0" y="125.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#5b6170" font-weight="normal" text-anchor="middle">pane Errors row: ✕ 2, unfolded (e): ✕ 2 errors, last: …</text>
 <path d="M420,128 L420,176" fill="none" stroke="#172033" stroke-width="1.5" marker-end="url(#a)"/>
 <rect x="290" y="176" width="260" height="52" rx="4" fill="#172033" stroke="#172033" stroke-width="1.5"/>
 <text x="420.0" y="198.0" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="13.5" fill="#ffffff" font-weight="600" text-anchor="middle">/compagnon errors</text>
