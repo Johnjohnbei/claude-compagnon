@@ -1,7 +1,7 @@
 // The pane's cards. Compact by default (user choice 2026-11-12): one row per subject, its key value, a symbol when it
 // needs a look; `e` unfolds every card in full (bordered, title and value in the top border, detail inside). The keys sit
 // on one legend line under the cards, not inside them.
-import type { AdvisorStat, AgentRow, BackgroundTask, Collision, ErrorEntry, Goal, Handoff, ParallelSummary, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
+import type { AdvisorStat, AgentRow, BackgroundTask, Collision, ErrorEntry, Goal, Handoff, RepoState, RunningTool, TaskRow, Usage, Waiting } from '../types'
 import { ACCENT, Card, TONE, gauge, k, strongest, usd, type CardMode, type El, type Tone } from './card-frame'
 import { activeAgents, ageLabel, elapsedLabel, errorSummary, goalProgress, lastSevenDays, levelOf, resetLabel, sparkline, type Activity, type DailySamples } from './logic'
 
@@ -63,12 +63,12 @@ export function PlanCard(E: El, width: number, usage: Usage | null, samples: Dai
 
 export type Work = {
   running: RunningTool[]; tasks: BackgroundTask[]; agents: AgentRow[]; waiting: Waiting | null
-  parallel: ParallelSummary | null; goal: Goal | null; taskList: TaskRow[]; activity: Activity
+  goal: Goal | null; taskList: TaskRow[]; activity: Activity
 }
 
 /**
  * Process: what runs now (tools, background tasks, agents, a permission prompt), with the goal (from Goal Meter: `/goal`
- * measured on the native task list) and the last turn's parallelism folded in: three cards became one.
+ * measured on the native task list) folded in: two cards became one.
  */
 export function ProcessCard(E: El, width: number, now: number, w: Work, onStop: (id: string) => void, onView: (id: string) => void, mode: CardMode) {
   const { Box, Text, Button } = E
@@ -79,13 +79,10 @@ export function ProcessCard(E: El, width: number, now: number, w: Work, onStop: 
   const oldTasks = w.tasks.filter(t => now - t.firstSeen > TASK_LONG)
   const stuck = [...failed, ...live.filter(a => a.status === 'waiting' || now - a.firstSeen > TASK_LONG)]
   const busy = w.running.length + w.tasks.length + live.length
-  const p = w.parallel && w.parallel.total > 0 ? w.parallel : null
-  const parTone: Tone = !p ? 'ok' : p.sequentialReads >= 6 ? 'alert' : p.sequentialReads >= 4 ? 'warn' : 'ok'
   const tone = strongest(
     failed.length > 0 ? 'error' : 'ok',
     w.waiting ? 'alert' : 'ok',
     longTools.length + oldTasks.length + stuck.length > 0 ? 'warn' : 'ok',
-    parTone,
     busy > 0 ? 'active' : 'ok',
   )
   const others = [live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, w.tasks.length && `${w.tasks.length} in background`].filter(Boolean).join(' · ')
@@ -93,7 +90,7 @@ export function ProcessCard(E: El, width: number, now: number, w: Work, onStop: 
   const hasGoal = Boolean(w.goal) || w.taskList.length > 0
   const g = hasGoal ? goalProgress(w.taskList, w.goal?.startedAt ?? now, now) : null
   const current = w.taskList.find(t => t.status === 'in_progress')
-  const note = [g ? `goal ${g.done}/${g.total}` : null, parTone !== 'ok' && p ? `${p.sequentialReads} reads in series` : null].filter(Boolean).join(' · ')
+  const note = g ? `goal ${g.done}/${g.total}` : null
   // Only what needs a look gets its own line; the rest is in the summary.
   return Card(E, width, 'Process', w.waiting ? 'waiting' : busy ? `${busy} running` : 'idle', tone, [
     ActivityText(E, w.activity, now),
@@ -118,13 +115,7 @@ export function ProcessCard(E: El, width: number, now: number, w: Work, onStop: 
         {g.etaMs !== null ? <Text dimColor> · ~{ageLabel(g.etaMs)}</Text> : ''}
       </Text>
     ) : null,
-    p ? (
-      <Text wrap="truncate-end">
-        <Text dimColor>parallel </Text>{p.overlapped}/{p.total} {gauge((p.overlapped / p.total) * 100)}
-        {parTone === 'ok' ? <Text dimColor>  at the same time</Text> : <Text color={TONE[parTone].color}>  ▲ {p.sequentialReads} reads in series</Text>}
-      </Text>
-    ) : <Text dimColor>parallel: summary at turn end</Text>,
-  ], { ...mode, note: note || null })
+  ], { ...mode, note })
 }
 
 /** The mod's own errors this session: the count, then the last message (`/compagnon errors` lists them all). */

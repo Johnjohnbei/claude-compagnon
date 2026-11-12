@@ -16,7 +16,6 @@ const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v
 const decision = atom({ plugin: 'compagnon', key: 'decision' } as const, null, { shape: 'v1' })
 const cache = atom({ plugin: 'compagnon', key: 'cache' } as const, null, { shape: 'v1' })
 const running = atom({ plugin: 'compagnon', key: 'running' } as const, [], { shape: 'v1' })
-const parallel = atom({ plugin: 'compagnon', key: 'parallel' } as const, null, { shape: 'v1' })
 const background = atom({ plugin: 'compagnon', key: 'background' } as const, [], { shape: 'v1' })
 const agents = atom({ plugin: 'compagnon', key: 'agents' } as const, [], { shape: 'v1' })
 const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
@@ -60,9 +59,9 @@ export async function renderBand($: $, E: El) {
 export async function renderPane($: $, E: El, columns: number, refreshRepos: () => void) {
   await read($, tick)
   const now = await $.clock.now()
-  const [u, d, p, c, run, bg, ag, w, par, rp] = await Promise.all([
+  const [u, d, p, c, run, bg, ag, w, rp] = await Promise.all([
     read($, usage), read($, decision), read($, pin), read($, cache), read($, running), read($, background),
-    read($, agents), read($, waiting), read($, parallel), read($, repos),
+    read($, agents), read($, waiting), read($, repos),
   ])
   const isAuto = (await $.store.get('auto')) !== false
   const samples = ((await $.store.get('weekPeaks')) ?? {}) as DailySamples
@@ -86,7 +85,7 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
       {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, activity, isExpanded: Boolean(isOpenAll), now })}
       {ContextCard(E, width, u, ho, mode)}
       {PlanCard(E, width, u, samples, now, mode)}
-      {ProcessCard(E, width, now, { running: run, tasks: bg, agents: ag, waiting: w, parallel: par, goal: g, taskList, activity }, id => void stopTask($, id), id => $.ui.view({ agentId: id }), mode)}
+      {ProcessCard(E, width, now, { running: run, tasks: bg, agents: ag, waiting: w, goal: g, taskList, activity }, id => void stopTask($, id), id => $.ui.view({ agentId: id }), mode)}
       {ErrorsCard(E, width, errors, mode)}
       {ProjectsCard(E, width, rp, used, clash, now, isOpen, mode)}
       {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen, isExpanded: Boolean(isOpenAll) }, {

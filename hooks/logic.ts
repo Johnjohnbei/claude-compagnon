@@ -1,6 +1,6 @@
 // Pure logic of the companion pane: no `$`, so the tests run it directly. The tiers, the request routing and the
 // load report live in tiers.ts, request-routing.ts and load-report.ts.
-import type { CacheInfo, CacheVerdict, Collision, ErrorEntry, Ledger, Level, LogEntry, ParallelSummary, RepoState, TaskRow, ToolSpan, TurnCost } from '../types'
+import type { CacheInfo, CacheVerdict, Collision, ErrorEntry, Ledger, Level, LogEntry, RepoState, TaskRow, TurnCost } from '../types'
 
 /** The cache is per model: below this, dropping to a cheaper model still pays. */
 export const CACHE_KEEP_TOKENS = 40_000
@@ -184,27 +184,6 @@ export function touchedRepos(input: Record<string, unknown>, dirs: string[]): st
     const edge = new RegExp(`${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`)
     return values.some(v => edge.test(v))
   })
-}
-
-const READ_ONLY = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'LS'])
-
-/**
- * How parallel the last turn was. A run of read-only calls that each waited for the previous one is work a
- * single batched step (or independent subagents) would have done at once.
- * ponytail: heuristic of our own, no tool measures this (web research 2026-11-05).
- */
-export function summarizeParallel(spans: ToolSpan[]): ParallelSummary {
-  const sorted = [...spans].sort((a, b) => a.start - b.start)
-  const overlapped = sorted.filter(s => sorted.some(o => o !== s && o.start < s.end && s.start < o.end)).length
-  let run = 0
-  let longest = 0
-  sorted.forEach((s, i) => {
-    const prev = sorted[i - 1]
-    const isSequentialRead = READ_ONLY.has(s.tool) && (!prev || !READ_ONLY.has(prev.tool) || s.start >= prev.end)
-    run = READ_ONLY.has(s.tool) ? (isSequentialRead ? run + 1 : 1) : 0
-    longest = Math.max(longest, run)
-  })
-  return { total: sorted.length, overlapped, sequentialReads: longest, agents: sorted.filter(s => s.tool === 'Agent').length }
 }
 
 /** Parses `git status --porcelain=v2 --branch`. */

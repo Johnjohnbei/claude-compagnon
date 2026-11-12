@@ -1,5 +1,5 @@
-// Companion pane: opens with every session, watches the model, the context, the plan, stalled work,
-// parallelism and the state of the followed repositories. See README.md.
+// Companion pane: opens with every session, watches the model, the context, the plan, stalled work
+// and the state of the followed repositories. See README.md.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -8,7 +8,7 @@ import { askHandoff, checkHandoff, guardEdit, initGuards, nameSession, noteTurnS
 import { TIER_NAME } from './tiers'
 import { routeReport, spawnModel } from './request-routing'
 import { chargeReport } from './load-report'
-import { errorReport, isOptionOn, normPath, parseStatus, summarizeParallel, tokensOption, touchedRepos } from './logic'
+import { errorReport, isOptionOn, normPath, parseStatus, tokensOption, touchedRepos } from './logic'
 import { renderBand, renderPane, restorePaneMode } from './pane-view'
 import { coldSendGuard, isAliasSupported, routePrompt } from './prompt-routing'
 import { note, pollForever, quietly, recordError, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
@@ -18,8 +18,6 @@ const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v
 const decision = atom({ plugin: 'compagnon', key: 'decision' } as const, null, { shape: 'v1' })
 const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
 const running = atom({ plugin: 'compagnon', key: 'running' } as const, [], { shape: 'v1' })
-const spans = atom({ plugin: 'compagnon', key: 'spans' } as const, [], { shape: 'v1' })
-const parallel = atom({ plugin: 'compagnon', key: 'parallel' } as const, null, { shape: 'v1' })
 const background = atom({ plugin: 'compagnon', key: 'background' } as const, [], { shape: 'v1' })
 const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
 const repos = atom({ plugin: 'compagnon', key: 'repos' } as const, [], { shape: 'v1' })
@@ -174,7 +172,6 @@ export const register: Register = (on, options) => {
     }
     await quietly($, async () => {
       await update($, waiting, () => null)
-      await update($, spans, () => [])
       hint = await routePrompt($, text, isClassifierOn)
     })
     return next(hint ? { ...e, text: text + hint } : e)
@@ -217,7 +214,6 @@ export const register: Register = (on, options) => {
   }) // own failure: the subagent starts as asked
 
   on('tool.call', async ($, e, next) => {
-    let start = 0
     const id = e.tool_use_id ?? `${e.tool}-${Math.random()}`
     const input = e as unknown as Record<string, unknown>
     // Collision guard (from Collision Guard): another open session edited this file in the last 30 min?
@@ -229,7 +225,7 @@ export const register: Register = (on, options) => {
       if (refusal) return refusal as { deny: string }
     }
     await quietly($, async () => {
-      start = await $.clock.now()
+      const start = await $.clock.now()
       await update($, waiting, () => null)
       await update($, running, list => [...list, { id, tool: e.tool, label: labelOf(e.tool, e as unknown as Record<string, unknown>), start }])
       const hit = touchedRepos(e as unknown as Record<string, unknown>, followed).map(normPath)
@@ -240,12 +236,7 @@ export const register: Register = (on, options) => {
       if (done.result !== undefined) await quietly($, () => trackTasks($, e.tool, input, done.result))
       return done
     } finally {
-      await quietly($, async () => {
-        const end = await $.clock.now()
-        await update($, running, list => list.filter(t => t.id !== id))
-        // Only the main loop's calls measure its parallelism: a subagent's own reads are its business.
-        if (!e.agentId && start > 0) await update($, spans, list => [...list, { tool: e.tool, start, end }].slice(-300))
-      })
+      await quietly($, () => update($, running, list => list.filter(t => t.id !== id)))
     }
   }).catch(async ($, e, next) => {
     await recordError($, next.error, 'tool.call')
@@ -315,8 +306,6 @@ export const register: Register = (on, options) => {
     await quietly($, async () => {
       const ended = await $.clock.now()
       await update($, lastTurnEnd, () => ended)
-      const list = await read($, spans)
-      await update($, parallel, () => summarizeParallel(list))
       await Promise.all([quietly($, () => refreshUsage($)), quietly($, () => refreshAgents($)), quietly($, () => refreshCache($))])
     })
     await quietly($, () => recordTurn($))

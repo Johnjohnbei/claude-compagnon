@@ -4,7 +4,7 @@ import type { CacheInfo, ErrorEntry, Ledger, LogEntry } from '../types'
 import { DEFAULT_TIER, TIER_NAME, TIERS, TIERS_STRONGEST_FIRST, tierOf, modelLabel, releaseOf, versionOf } from './tiers'
 import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needsClassifier, pushRoute, route, ROUTE_LOG_MAX, routeRecord, routeReport, settle, spawnModel, supportsAlias, tierOfLabel, withoutPin } from './request-routing'
 import { chargeReport, contextParts } from './load-report'
-import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, summarizeParallel, tokensOption, touchedRepos, ttlMs } from './logic'
+import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, errorSummary, errorText, goalProgress, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -142,15 +142,6 @@ test('an older id (a fallback step, another window still on the previous release
   expect(releaseOf(seen, 'claude-opus-5-5-20261001')).toEqual({ seen, changed: null })
   expect(releaseOf(seen, 'opus')).toEqual({ seen, changed: null }) // an alias carries no version
   expect(releaseOf({ opus: 'opus' }, 'claude-opus-5-5')).toEqual({ seen: { opus: 'claude-opus-5-5' }, changed: null }) // a versionless memory is replaced silently
-})
-
-test('reads that waited for each other are flagged, batched ones are not', async () => {
-  const serial = [0, 1, 2, 3, 4].map(i => ({ tool: 'Grep', start: i * 10, end: i * 10 + 5 }))
-  expect(summarizeParallel(serial).sequentialReads).toBe(5)
-  const batched = [0, 1, 2, 3, 4].map(() => ({ tool: 'Read', start: 0, end: 5 }))
-  const sum = summarizeParallel(batched)
-  expect(sum.sequentialReads).toBe(1)
-  expect(sum.overlapped).toBe(5)
 })
 
 test('git status v2 gives branch, ahead, behind and changes', async () => {
@@ -294,7 +285,6 @@ const STATE: Record<string, unknown> = {
     { id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 42_000 },
     { id: 'g1', label: 'sites d’appel', type: 'grep', status: 'completed', firstSeen: LIVE - 60_000, endedAt: LIVE - 42_000 },
   ],
-  parallel: { total: 12, overlapped: 4, sequentialReads: 5, agents: 1 },
   repos: [
     { dir: 'C:/Users/me/GitHub/projet-c', name: 'projet-c', branch: 'main', ahead: 2, behind: 0, dirty: 17, hasUpstream: true },
     { dir: 'C:/Users/me/GitHub/projet-d', name: 'projet-d', branch: 'main', ahead: 0, behind: 0, dirty: 0, hasUpstream: true },
@@ -330,7 +320,7 @@ const STATE: Record<string, unknown> = {
 const OPEN: Record<string, unknown> = { ...STATE, isExpanded: true }
 
 test('a busy session reads in plain words: cache countdown, keep-warm, goal, collision', async ($, on) => {
-  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
@@ -341,7 +331,7 @@ test('a busy session reads in plain words: cache countdown, keep-warm, goal, col
   on('session.id', () => ({ value: 'session-1' }))
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // the ping 10 min ago holds the cache 50 min more, past the status line's stale 42 min
-  for (const words of [/^ {2}50 min$/, /● kept warm/, /handed to Sonnet$/, /^goal 2\/4 ▰/, /^parallel 4\/12 /, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
+  for (const words of [/^ {2}50 min$/, /● kept warm/, /handed to Sonnet$/, /^goal 2\/4 ▰/, /Bouton\.tsx · "refonte hub mobile"/, /Bash 2 min · 2 agents/, /148k \/ 200k/]) {
     expect((await ui.find({ type: 'Text', text: words }))?.text).toMatch(words)
   }
   // a collision turns the Projects card's key value into ▲ 1
@@ -461,7 +451,7 @@ test('the routing record keeps the first words only, the last two hundred, and r
 })
 
 test('wide pane: the advisor sits beside the main session, the scouts under them with what each is for', async ($, on) => {
-  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
@@ -481,7 +471,7 @@ test('wide pane: the advisor sits beside the main session, the scouts under them
 })
 
 test('a narrow pane: no card spills past its width, compact or unfolded, and a state reads without its colour', async ($, on) => {
-  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
@@ -757,7 +747,7 @@ test('the band and the status line count the same active agents: an ended one (c
   expect(activeAgents(everyStatus).map(a => a.status)).toEqual(['running', 'waiting', 'idle', 'pending'])
   for (const status of ['completed', 'failed', 'killed']) expect(isFinished(status)).toBe(true)
   const state: Record<string, unknown> = { ...OPEN, agents: everyStatus }
-  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking'].includes(key) ? false : null
@@ -787,7 +777,7 @@ test('the band and the status line count the same active agents: an ended one (c
 /** The state hook a pane test uses, registered once: the state `of` gives at each read, each key's own default otherwise. */
 function mockState(on: Parameters<TestBody>[1], of: Record<string, unknown> | (() => Record<string, unknown>), now = () => LIVE) {
   const current = typeof of === 'function' ? of : () => of
-  const arrays = ['running', 'spans', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
+  const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
     const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'tick', 'costMark', 'turnStartedAt'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : ['isProjectsOpen', 'isWorking', 'isExpanded'].includes(key) ? false : null
@@ -804,8 +794,8 @@ test('compact, each subject is one row with its key value, and the detail waits 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   for (const row of [
     /^Model {6}Opus 5\.5$/, /^Context {4}▲ 74%$/, /^7-day plan 41%$/,
-    // Goal and Parallelism are folded into the Process row: its value, then the goal, then what needs a look
-    /^Process {4}▲ 3 running · goal 2\/4 · 5 reads in series$/,
+    // the goal is folded into the Process row: its value, then the goal
+    /^Process {4}▲ 3 running · goal 2\/4$/,
     /^Errors {5}none$/, /^Projects {3}▲ 1 · collision$/,
     // the chain folded to the status line, the same figures
     /^● working · 3m20 · agents \[2 active\] · advisor \[2 calls\] · decisions \[2\] · cost \$0\.29$/,
@@ -824,7 +814,6 @@ const HEALTHY: Record<string, unknown> = {
   usage: { model: 'claude-opus-5-5', contextPct: 32, contextTokens: 64_000, contextWindow: 200_000, limits: [{ kind: 'seven_day', percentUsed: 20, resetsAt: '2026-11-08T09:00:00Z' }], costUsd: 0 },
   running: [], collisions: [], costs: [{ at: LIVE - 600_000, usd: 0.08, tier: 'sonnet', advisorCalls: 0 }],
   agents: [{ id: 's1', label: 'cartographie', type: 'search', status: 'running', firstSeen: LIVE - 42_000 }],
-  parallel: { total: 12, overlapped: 10, sequentialReads: 1, agents: 1 },
   repos: [{ dir: 'C:/Users/me/GitHub/projet-c', name: 'projet-c', branch: 'main', ahead: 0, behind: 0, dirty: 3, hasUpstream: true }],
   journal: [{ at: LIVE - 30_000, kind: 'route', text: 'Debugging: Opus, effort high' }],
 }

@@ -48,9 +48,7 @@ export type CtxPart = { name: string; tokens: number }
 /** The model id last seen for each tier, kept across sessions: an id that changes is a release. */
 export type SeenModels = Partial<Record<Tier, string>>
 
-export type ToolSpan = { tool: string; start: number; end: number }
 export type RunningTool = { id: string; tool: string; label: string; start: number }
-export type ParallelSummary = { total: number; overlapped: number; sequentialReads: number; agents: number }
 
 export type BackgroundTask = { id: string; type: string; label: string; firstSeen: number }
 export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number }
@@ -76,8 +74,6 @@ declare module 'claude-code' {
       cache: Shaped<CacheInfo | null>
       lastTurnEnd: Shaped<number>
       running: Shaped<RunningTool[]>
-      spans: Shaped<ToolSpan[]>
-      parallel: Shaped<ParallelSummary | null>
       background: Shaped<BackgroundTask[]>
       agents: Shaped<AgentRow[]>
       waiting: Shaped<Waiting | null>
