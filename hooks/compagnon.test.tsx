@@ -808,6 +808,40 @@ test('compact, each subject is one row with its key value, and the detail waits 
   await ui.unmount()
 })
 
+test('cards follow importance, and the chain keeps its blocks and arrows narrow and wide', async ($, on) => {
+  let isExpanded = false
+  mockState(on, () => ({ ...STATE, isExpanded }))
+  const texts = async (columns: number) => {
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
+    const all = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    await ui.unmount()
+    return all
+  }
+  // compact: what blocks or runs, the mod's errors, then what can call for an action, then what informs
+  const rows = await texts(50)
+  const at = (re: RegExp) => rows.findIndex(t => re.test(t))
+  const compact = [/^Process /, /^Errors /, /^Context /, /^Projects /, /^Model /, /^7-day plan /].map(at)
+  expect(compact.every(i => i >= 0)).toBe(true)
+  expect([...compact].sort((a, b) => a - b)).toEqual(compact)
+  isExpanded = true
+  const titles = (list: string[]) => list.map(t => /^╭─ (.+?) ─+ /.exec(t)?.[1]).filter(Boolean)
+  const arrows = (list: string[]) => list.filter(t => /^ +[▽▼▲] (advice|decides|delegates|results)$/.test(t)).map(t => t.trim())
+  // under 84 columns the chain is one column, its five blocks linked by four arrows, in the slot the Model row held
+  const narrow = await texts(50)
+  expect(titles(narrow)).toEqual(['Process', 'Errors', 'Context', 'Projects', 'Advisor', 'Model', 'Decisions', 'Scouts', 'Log', '7-day plan'])
+  expect(arrows(narrow)).toEqual(['▽ advice', '▼ decides', '▼ delegates', '▲ results'])
+  const between = (a: RegExp, b: RegExp, c: RegExp) => { const i = narrow.findIndex(t => a.test(t)); const j = narrow.findIndex(t => b.test(t)); const l = narrow.findIndex(t => c.test(t)); return i < j && j < l }
+  expect(between(/^╭─ Advisor /, /▽ advice$/, /^╭─ Model /)).toBe(true)
+  expect(between(/^╭─ Model /, /▼ decides$/, /^╭─ Decisions /)).toBe(true)
+  expect(between(/^╭─ Decisions /, /▼ delegates$/, /^╭─ Scouts /)).toBe(true)
+  expect(between(/^╭─ Scouts /, /▲ results$/, /^╭─ Log /)).toBe(true)
+  // from 84 columns: advisor beside the main session, no arrow lines, the subagents pointer instead
+  const wide = await texts(100)
+  expect(titles(wide)).toEqual(['Process', 'Errors', 'Context', 'Projects', 'Advisor', 'Model', 'Decisions', 'Scouts', 'Log', '7-day plan'])
+  expect(arrows(wide)).toEqual([])
+  expect(wide.filter(t => /^ {2}↓ subagents$/.test(t)).length).toBe(1)
+})
+
 /** A healthy session: nothing needs a look, a keep-warm and a scout running (the accent's two uses). */
 const HEALTHY: Record<string, unknown> = {
   ...STATE,

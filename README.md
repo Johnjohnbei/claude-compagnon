@@ -12,15 +12,17 @@ A Claude Code mod that opens a side pane with every session, picks the model eac
 
 The pane opens **compact** the first time: one row per subject, each with one key value. It remembers your last choice (`e`) between sessions.
 
+Rows come by importance: first what blocks or runs (`Process`), then the mod's own errors, then what can call for an action (`Context` past 70 %, a `Projects` collision), then what informs (`Model`, `7-day plan`). Unfolded, the model chain takes the `Model` slot.
+
 | Row | Key value | Unfolded with `e` |
 | --- | --- | --- |
+| `Process` | how many tools, tasks and agents run, then `goal 3/5` when there is one | long tools, background tasks, stuck agents, permission prompts (`stop` and `view` buttons), the goal (progress of `/goal` on the task list) |
+| `Errors` | the mod's own errors this session, `none` or `✕ 2` | the last error message |
+| `Context` | how full the context window is | gauge, tokens, handoff state |
+| `Projects` | repositories touched, `+N` followed but untouched | branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
 | `Model` | the main model | the model chain: `Advisor` (the advisor's calls; its advice is encrypted, so only the call is visible), `Model` (cache countdown, the size Claude would reread if the cache went cold, effort, load), `Decisions` (the tier the last request got and which layer chose it), `Scouts` (the agents named `search`, `grep` and `audit`, one line each; other agents are counted), `Log` (the last things the mod decided) |
 | status line | `● working · 2m14` while a turn or an agent runs, `✓ done` for 10 s after, then agents, advisor calls, decisions and cost | the same line, under the chain |
-| `Context` | how full the context window is | gauge, tokens, handoff state |
 | `7-day plan` | your weekly plan usage | 7-day curve, reset time |
-| `Process` | how many tools, tasks and agents run, then `goal 3/5` and reads in series when there are | long tools, background tasks, stuck agents, permission prompts (`stop` and `view` buttons), the goal (progress of `/goal` on the task list) and the last turn's parallelism |
-| `Errors` | the mod's own errors this session, `none` or `✕ 2` | the last error message |
-| `Projects` | repositories touched, `+N` followed but untouched | branch, changed files, commits ahead or behind, edit collisions, and with `p` the untouched ones |
 
 Under the rows sits the **keys line**, and above the prompt the **band**: one line with the model, advisor calls, cost, context and running agents.
 
@@ -30,12 +32,11 @@ When to act:
 
 | You see | Do |
 | --- | --- |
-| `Context ▲ 72%` (70 % or more), unfolded: `▲ nearly full: /clear or handoff (h)` | Press `h`, then `c` when the handoff is ready. |
-| `Model ▲ Opus 5.5 · cold cache`, unfolded: `▲ cold cache · rereads 120k` | Your next message rereads the whole context. Consider a handoff or a compaction first. |
 | `Process ▲` or `✕`: unfolded, a tool, task or agent marked `▲` or `✕` | Press `e` and check it. `stop` ends a background task, `view` opens an agent. |
-| `Process … · 4 reads in series` | Ask Claude to batch its reads or hand them to a subagent. |
-| `Projects ▲ 1 · collision`, unfolded: `▲ file · "session"` | Another open session edited the same file. Coordinate before going on. |
 | `Errors ✕ 2`, or `✕ 2` in the band | The mod hit an error. Run `/compagnon errors`. |
+| `Context ▲ 72%` (70 % or more), unfolded: `▲ nearly full: /clear or handoff (h)` | Press `h`, then `c` when the handoff is ready. |
+| `Projects ▲ 1 · collision`, unfolded: `▲ file · "session"` | Another open session edited the same file. Coordinate before going on. |
+| `Model ▲ Opus 5.5 · cold cache`, unfolded: `▲ cold cache · rereads 120k` | Your next message rereads the whole context. Consider a handoff or a compaction first. |
 
 ## Quick start
 
@@ -231,7 +232,6 @@ That is why the guards exist. Routing switches the model only when the cache is 
 
 - Keyword routing is approximate. The classifier covers what keywords miss; without it (option off, 3 s timeout, failure), the request stays on Opus.
 - The plan is published in percentages only. The 7-day curve counts only days when a session ran.
-- The parallelism heuristic is the mod's own; no tool measures this.
 - The collision guard only sees sessions where the mod runs.
 - After a keep-warm ping, the status line's cache figures lag behind: the mod trusts the ping until the next expiry.
 - The model switch sends the tier name (`haiku`, `sonnet`, `opus`, `fable`) and lets the engine pick the version. No model id is written in the mod.

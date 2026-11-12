@@ -55,7 +55,7 @@ export async function renderBand($: $, E: El) {
   return Band(E, label, adv, total, u ? u.contextPct : null, activeAgents(ag).length, (await errorsNow($)).length)
 }
 
-/** The pane, `columns` wide: the chain, the cards, the keys; compact until `e`. `refreshRepos` is the `r` key. */
+/** The pane, `columns` wide: the cards by importance, the chain in the Model slot, the keys; compact until `e`. `refreshRepos` is the `r` key. */
 export async function renderPane($: $, E: El, columns: number, refreshRepos: () => void) {
   await read($, tick)
   const now = await $.clock.now()
@@ -82,12 +82,13 @@ export async function renderPane($: $, E: El, columns: number, refreshRepos: () 
   const { Box } = E
   return (
     <Box flexDirection="column">
-      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, activity, isExpanded: Boolean(isOpenAll), now })}
-      {ContextCard(E, width, u, ho, mode)}
-      {PlanCard(E, width, u, samples, now, mode)}
+      {/* By importance: what blocks or runs, then what can call for an action, then what informs. */}
       {ProcessCard(E, width, now, { running: run, tasks: bg, agents: ag, waiting: w, goal: g, taskList, activity }, id => void stopTask($, id), id => $.ui.view({ agentId: id }), mode)}
       {ErrorsCard(E, width, errors, mode)}
+      {ContextCard(E, width, u, ho, mode)}
       {ProjectsCard(E, width, rp, used, clash, now, isOpen, mode)}
+      {Schema(E, { width: columns, usage: u, decision: d, pin: p, cache: c, verdict, keepWarm: kw, warmLeft, ttl, isAuto, advisor: adv, turns: turnCosts, seen: seenIds, parts, routes, agents: ag, journal: log, activity, isExpanded: Boolean(isOpenAll), now })}
+      {PlanCard(E, width, u, samples, now, mode)}
       {KeysLine(E, { isAuto, isKeepWarm, ho, hasIdle: rp.some(r => !used.includes(r.dir)), isOpen, isExpanded: Boolean(isOpenAll) }, {
         expand: () => void quietly($, async () => {
           await update($, isExpanded, () => !isOpenAll)

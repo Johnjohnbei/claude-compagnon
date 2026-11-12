@@ -1,20 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="688" viewBox="0 0 760 688" role="img" aria-label="The Compagnon pane, compact by default and unfolded with e">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="669" viewBox="0 0 760 669" role="img" aria-label="The Compagnon pane, compact by default and unfolded with e">
 <title>The Compagnon pane</title>
-<rect width="760" height="688" fill="#ffffff"/>
+<rect width="760" height="669" fill="#ffffff"/>
 <text x="24" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#172033" font-weight="600" text-anchor="start">The pane opens compact: one row per subject</text>
 <text x="736" y="34" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="end">schematic, not a screenshot</text>
 <text x="24" y="58" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="normal" text-anchor="start">Each row gives one key value. A symbol says when a row needs a look; e unfolds the detail.</text>
 <rect x="24" y="80" width="400" height="268" rx="8" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
 <text x="38" y="102" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="600" text-anchor="start">Compact (default)</text>
-<text x="38" y="130" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Model      </tspan><tspan fill="#172033" font-weight="700">Opus 5.5</tspan></text>
-<text x="38" y="154" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#2257b8">● working · 2m14</tspan><tspan fill="#5b6170"> · agents [1 active] · cost $1.84</tspan></text>
+<text x="38" y="130" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Process    </tspan><tspan fill="#2257b8" font-weight="700">● 2 running</tspan><tspan fill="#5b6170"> · goal 3/5</tspan></text>
+<text x="38" y="154" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Errors     </tspan><tspan fill="#172033" font-weight="700">none</tspan></text>
 <text x="38" y="178" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Context    </tspan><tspan fill="#9a5b00" font-weight="700">▲ 72%</tspan></text>
-<text x="38" y="202" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">7-day plan </tspan><tspan fill="#172033" font-weight="700">38%</tspan></text>
-<text x="38" y="226" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Process    </tspan><tspan fill="#2257b8" font-weight="700">● 2 running</tspan><tspan fill="#5b6170"> · goal 3/5</tspan></text>
-<text x="38" y="250" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Errors     </tspan><tspan fill="#172033" font-weight="700">none</tspan></text>
-<text x="38" y="274" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Projects   </tspan><tspan fill="#9a5b00" font-weight="700">▲ 1</tspan><tspan fill="#5b6170"> · collision</tspan></text>
+<text x="38" y="202" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Projects   </tspan><tspan fill="#9a5b00" font-weight="700">▲ 1</tspan><tspan fill="#5b6170"> · collision</tspan></text>
+<text x="38" y="226" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Model      </tspan><tspan fill="#172033" font-weight="700">Opus 5.5</tspan></text>
+<text x="38" y="250" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#2257b8">● working · 2m14</tspan><tspan fill="#5b6170"> · agents [1 active] · cost $1.84</tspan></text>
+<text x="38" y="274" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">7-day plan </tspan><tspan fill="#172033" font-weight="700">38%</tspan></text>
 <text x="38" y="304" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#2257b8" font-weight="700">e</tspan><tspan fill="#5b6170"> expand · </tspan><tspan fill="#2257b8" font-weight="700">a</tspan><tspan fill="#5b6170"> auto · </tspan><tspan fill="#2257b8" font-weight="700">k</tspan><tspan fill="#5b6170"> keep warm · </tspan><tspan fill="#2257b8" font-weight="700">h</tspan><tspan fill="#5b6170"> handoff · </tspan><tspan fill="#2257b8" font-weight="700">r</tspan><tspan fill="#5b6170"> repos</tspan></text>
-<text x="38" y="330" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6170" font-weight="normal" text-anchor="start">The second row is the model chain folded to its status line.</text>
+<text x="38" y="330" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" fill="#5b6170" font-weight="normal" text-anchor="start">The row under Model is the model chain folded to its status line.</text>
 <text x="448" y="102" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#5b6170" font-weight="600" text-anchor="start">Four tones, each with its symbol</text>
 <text x="448" y="132" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="start">Opus 5.5</text>
 <text x="552" y="132" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#172033" font-weight="normal" text-anchor="start">neutral: all is well</text>
@@ -30,23 +30,22 @@
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#172033"/></marker></defs>
 <line x1="224.0" y1="356" x2="224.0" y2="392" stroke="#172033" stroke-width="1.3" marker-end="url(#a)"/>
 <text x="236.0" y="378" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#172033" font-weight="normal" text-anchor="start">press e: every row becomes its full card (excerpt)</text>
-<rect x="24" y="416" width="712" height="60" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
+<rect x="24" y="416" width="712" height="79" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
 <rect x="34" y="408" width="62.4" height="16" fill="#ffffff"/>
-<text x="40" y="421" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="start">Context</text>
-<rect x="678.0" y="408" width="48.0" height="16" fill="#ffffff"/>
-<text x="720" y="421" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#9a5b00" font-weight="700" text-anchor="end">▲ 72%</text>
-<text x="38" y="443" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">▰▰▰▰▰▰▰▱▱▱</tspan><tspan fill="#5b6170">  144k / 200k</tspan></text>
-<text x="38" y="462" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#9a5b00">▲ nearly full: /clear or handoff (h)</tspan></text>
-<rect x="24" y="494" width="712" height="98" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
-<rect x="34" y="486" width="62.4" height="16" fill="#ffffff"/>
-<text x="40" y="499" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="start">Process</text>
-<rect x="634.8" y="486" width="91.2" height="16" fill="#ffffff"/>
-<text x="720" y="499" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#2257b8" font-weight="700" text-anchor="end">● 2 running</text>
-<text x="38" y="521" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#2257b8">● working · 2m14</tspan></text>
-<text x="38" y="540" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Bash 14 s · 1 agent</tspan></text>
-<text x="38" y="559" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#5b6170">goal </tspan><tspan fill="#172033">3/5 ▰▰▰▰▰▰▱▱▱▱  Write the migration</tspan><tspan fill="#5b6170"> · ~12 min</tspan></text>
-<text x="38" y="578" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#5b6170">parallel </tspan><tspan fill="#172033">9/12 ▰▰▰▰▰▰▰▰▱▱</tspan><tspan fill="#5b6170">  at the same time</tspan></text>
-<text x="24" y="614" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">Goal and Parallelism live inside Process; the three scouts share one Scouts card; the chain unfolds above.</text>
-<text x="24" y="638" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">Band, one line above the prompt: Opus · advisor 2 · $1.84 · ▲ ctx 72% · agents 1</text>
-<text x="24" y="662" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">Figures are examples.</text>
+<text x="40" y="421" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="start">Process</text>
+<rect x="634.8" y="408" width="91.2" height="16" fill="#ffffff"/>
+<text x="720" y="421" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#2257b8" font-weight="700" text-anchor="end">● 2 running</text>
+<text x="38" y="443" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#2257b8">● working · 2m14</tspan></text>
+<text x="38" y="462" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">Bash 14 s · 1 agent</tspan></text>
+<text x="38" y="481" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#5b6170">goal </tspan><tspan fill="#172033">3/5 ▰▰▰▰▰▰▱▱▱▱  Write the migration</tspan><tspan fill="#5b6170"> · ~12 min</tspan></text>
+<rect x="24" y="513" width="712" height="60" rx="6" fill="#ffffff" stroke="#c4c8d0" stroke-width="1.3"/>
+<rect x="34" y="505" width="62.4" height="16" fill="#ffffff"/>
+<text x="40" y="518" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#172033" font-weight="700" text-anchor="start">Context</text>
+<rect x="678.0" y="505" width="48.0" height="16" fill="#ffffff"/>
+<text x="720" y="518" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" fill="#9a5b00" font-weight="700" text-anchor="end">▲ 72%</text>
+<text x="38" y="540" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#172033">▰▰▰▰▰▰▰▱▱▱</tspan><tspan fill="#5b6170">  144k / 200k</tspan></text>
+<text x="38" y="559" font-family="Consolas, 'DejaVu Sans Mono', Menlo, monospace" font-size="13" xml:space="preserve"><tspan fill="#9a5b00">▲ nearly full: /clear or handoff (h)</tspan></text>
+<text x="24" y="595" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">The goal lives inside Process; the three scouts share one Scouts card; the chain unfolds in the Model slot.</text>
+<text x="24" y="619" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">Band, one line above the prompt: Opus · advisor 2 · $1.84 · ▲ ctx 72% · agents 1</text>
+<text x="24" y="643" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" fill="#5b6170" font-weight="normal" text-anchor="start">Figures are examples.</text>
 </svg>

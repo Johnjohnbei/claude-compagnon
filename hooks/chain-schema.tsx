@@ -1,4 +1,4 @@
-// The chain at the top of the pane: advisor, main session, decision layer, scouts, journal and status line (README).
+// The chain, in the pane's Model slot: advisor, main session, decision layer, scouts, journal and status line (README).
 // Folded by default to the Model row and the status line, the same figures; `e` unfolds it.
 import type { RenderChildren } from 'claude-code'
 
