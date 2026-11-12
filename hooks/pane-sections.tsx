@@ -4,12 +4,15 @@ import type { RenderChildren } from 'claude-code'
 
 import type { AgentRow, BackgroundTask, CacheVerdict, Collision, ErrorEntry, Handoff, RunningTool, Usage, Waiting } from '../types'
 import { ACCENT, TONE, k, spin, type El } from './card-frame'
-import { CACHE_KEEP_TOKENS, COLD_SOON_MS, activeAgents, ageLabel, clockLabel, elapsedLabel, levelOf, type Activity } from './logic'
+import { CACHE_KEEP_TOKENS, COLD_SOON_MS, ageLabel, clockLabel, elapsedLabel, levelOf } from './logic'
+import { activeAgents, type Activity } from './mood'
 
 /** Long-running thresholds: a tool past 2 min, a background task or an agent past 10 min. */
 const TOOL_LONG = 120_000
 const TASK_LONG = 600_000
 const NAME_COL = 11
+/** Under this width a row keeps its mark and its text on one line: no name column, no key hint (its action button stays). */
+export const NARROW_COLUMNS = 44
 const MAX_ROWS = 8
 
 export type Work = {
@@ -20,19 +23,21 @@ export type Work = {
 }
 export type Actions = { onStop: (id: string) => void; onView: (id: string) => void }
 
-type RowSpec = { mark: string; color?: string; name: string; text: RenderChildren; hint?: RenderChildren }
+/** `hint`: a key the keys line answers to or a time; `action`: a button that does something, kept at any width. */
+type RowSpec = { mark: string; color?: string; name: string; text: RenderChildren; hint?: RenderChildren; action?: RenderChildren }
 
 const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
-/** One line of a section: mark, name column, the text (which gives way first), then a hint or button held to the right. */
+/** One line of a section: mark, name column, the text (which gives way first), then a hint or button held to the right. Every piece truncates: a row is one line at any width. */
 function Row(E: El, width: number, r: RowSpec) {
   const { Box, Text } = E
+  const isNarrow = width < NARROW_COLUMNS
   return (
     <Box width={width}>
-      <Text color={r.color} bold>{r.mark}</Text>
-      <Text bold>{cut(r.name, NAME_COL - 1).padEnd(NAME_COL)}</Text>
-      <Box flexGrow={1} flexShrink={1}>{r.text}</Box>
-      {r.hint ? <Box flexShrink={0} marginLeft={1}>{r.hint}</Box> : null}
+      <Text color={r.color} bold wrap="truncate-end">{r.mark}</Text>
+      {isNarrow ? null : <Text bold wrap="truncate-end">{cut(r.name, NAME_COL - 1).padEnd(NAME_COL)}</Text>}
+      <Box flexGrow={1} flexShrink={1} minWidth={0}>{r.text}</Box>
+      {r.action ? <Box flexShrink={0} marginLeft={1}>{r.action}</Box> : !isNarrow && r.hint ? <Box flexShrink={0} marginLeft={1}>{r.hint}</Box> : null}
     </Box>
   )
 }
@@ -84,7 +89,7 @@ export function Failed(E: El, w: Work, on: Actions) {
   const { Button, Text } = E
   const red = TONE.error.color
   const rows: RenderChildren[] = w.agents.filter(a => a.status === 'failed').map(a =>
-    Row(E, w.width, { mark: ' ✕ ', color: red, name: a.type, text: <Text color={red} wrap="truncate-end">{a.label} · agent failed · {ageLabel(w.now - a.firstSeen)}</Text>, hint: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> }),
+    Row(E, w.width, { mark: ' ✕ ', color: red, name: a.type, text: <Text color={red} wrap="truncate-end">{a.label} · agent failed · {ageLabel(w.now - a.firstSeen)}</Text>, action: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> }),
   )
   const last = w.errors[w.errors.length - 1]
   if (w.isFreshError && last)
@@ -116,7 +121,7 @@ export function Running(E: El, w: Work, on: Actions) {
     const isStuck = a.status === 'waiting' || w.now - a.firstSeen > TASK_LONG
     const lead = depth > 0 ? `${'  '.repeat(depth)}└` : ''
     const own = isStuck
-      ? Row(E, w.width, { mark: ` ${lead}▲ `, color: amber, name: a.type, text: <Text color={amber} wrap="truncate-end">{a.label} · {a.status === 'waiting' ? 'waiting' : `running ${elapsedLabel(w.now - a.firstSeen)}, may be stuck`}</Text>, hint: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> })
+      ? Row(E, w.width, { mark: ` ${lead}▲ `, color: amber, name: a.type, text: <Text color={amber} wrap="truncate-end">{a.label} · {a.status === 'waiting' ? 'waiting' : `running ${elapsedLabel(w.now - a.firstSeen)}, may be stuck`}</Text>, action: <Button key={`view-${a.id}`} plain label="view" onPress={() => on.onView(a.id)} /> })
       : Row(E, w.width, { mark: ` ${lead}${isPaused ? '‖' : spin(w.frame + (i + depth) * 3)} `, color: isPaused ? undefined : ACCENT, name: a.type, text: <Text dimColor wrap="truncate-end">{a.label}</Text>, hint: <Text>{isPaused ? null : Sweep(E, w.frame + i * 2)}<Text dimColor> {elapsedLabel(w.now - a.firstSeen)}</Text></Text> })
     const kids = depth < 3 ? live.filter(c => c.parentId === a.id) : []
     return [own, ...kids.flatMap((c, j) => agentRows(c, depth + 1, j))]
@@ -125,7 +130,7 @@ export function Running(E: El, w: Work, on: Actions) {
   rows.push(...roots.flatMap((a, i) => agentRows(a, 0, i)))
   for (const t of w.tasks) {
     const isOld = w.now - t.firstSeen > TASK_LONG
-    rows.push(Row(E, w.width, { mark: isOld ? ' ▲ ' : ' ● ', color: isOld ? amber : ACCENT, name: 'background', text: <Text color={isOld ? amber : undefined} dimColor={!isOld} wrap="truncate-end">{t.label} · {isOld ? 'in background ' : ''}{ageLabel(w.now - t.firstSeen)}</Text>, hint: <Button key={`stop-${t.id}`} plain label="stop" onPress={() => on.onStop(t.id)} /> }))
+    rows.push(Row(E, w.width, { mark: isOld ? ' ▲ ' : ' ● ', color: isOld ? amber : ACCENT, name: 'background', text: <Text color={isOld ? amber : undefined} dimColor={!isOld} wrap="truncate-end">{t.label} · {isOld ? 'in background ' : ''}{ageLabel(w.now - t.firstSeen)}</Text>, action: <Button key={`stop-${t.id}`} plain label="stop" onPress={() => on.onStop(t.id)} /> }))
   }
   const counts = [w.running.length && `${w.running.length} tool${w.running.length > 1 ? 's' : ''}`, live.length && `${live.length} agent${live.length > 1 ? 's' : ''}`, w.tasks.length && `${w.tasks.length} in background`].filter(Boolean).join(' · ')
   return Section(E, 'RUNNING', ACCENT, isPaused ? 'paused on you' : counts, rows, w.width)

@@ -10,8 +10,9 @@ import { askHandoff, continueFromHandoff, setKeepWarm } from './guards'
 import { Head } from './pane-head'
 import { Done, Failed, ForYou, Running, type Work } from './pane-sections'
 import { TIER_NAME, modelLabel } from './tiers'
-import { activeAgents, activityOf, hasFreshError, ttlMs, type DailySamples } from './logic'
-import { FRAME_MS, errorsNow, moodNow, quietly, stopTask, verdictNow, warmUntilOf } from './session-tracking'
+import { ttlMs, type DailySamples } from './logic'
+import { activeAgents, hasFreshFailure } from './mood'
+import { FRAME_MS, errorsNow, quietly, readMood, stopTask, verdictNow, warmUntilOf } from './session-tracking'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -76,8 +77,7 @@ export async function renderPane($: $, E: El, columns: number, isCompanionShown:
   const routes = ((await $.store.get('routeLog')) ?? []) as RouteRecord[]
   const errors = await errorsNow($)
   const [started, ended, isOpenAll] = await Promise.all([read($, turnStartedAt), read($, lastTurnEnd), read($, isExpanded)])
-  const mood = await moodNow($)
-  const activity = activityOf(started, ended, ag, now)
+  const { mood, activity, waitAt } = await readMood($)
   const mode = { isCompact: !isOpenAll }
   const width = Math.min(64, columns)
   const ttl = ttlMs(c)
@@ -86,12 +86,12 @@ export async function renderPane($: $, E: El, columns: number, isCompanionShown:
   const warmLeft = expiry > 0 ? expiry - now : null
   const isKeepWarm = Boolean(kw && !kw.stopped)
   const frame = Math.floor(now / FRAME_MS) // the frame follows the clock: a redraw is enough to move it, nothing is written
-  const work: Work = { now, frame, width, running: run, tasks: bg, agents: ag, waiting: w, clash, ho, usage: u, verdict, warmLeft, isKeepWarm, errors, isFreshError: hasFreshError(errors, started, now), activity }
+  const work: Work = { now, frame, width, running: run, tasks: bg, agents: ag, waiting: w, clash, ho, usage: u, verdict, warmLeft, isKeepWarm, errors, isFreshError: hasFreshFailure(errors.map(e => e.at), started, now), activity }
   const actions = { onStop: (id: string) => void stopTask($, id), onView: (id: string) => $.ui.view({ agentId: id }) }
   const { Box, Text } = E
   return (
     <Box flexDirection="column">
-      {Head(E, { width, columns, isSpriteShown: isCompanionShown, mood, frame, now, activity, waitAt: w?.at ?? clash[0]?.at ?? null, lastTurnEnd: ended, usage: u, pin: p, decision: d, routes, isAuto, goal: g, taskList, verdict, warmLeft, kw })}
+      {Head(E, { width, columns, isSpriteShown: isCompanionShown, mood, frame, now, activity, waitAt, lastTurnEnd: ended, usage: u, pin: p, decision: d, routes, isAuto, goal: g, taskList, verdict, warmLeft, kw })}
       <Text> </Text>
       {/* By priority: what asks for you, what failed, what runs, what just ended; then the cards, each a grey row unless it needs a look. */}
       {ForYou(E, work)}

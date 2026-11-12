@@ -7,7 +7,8 @@ import type { AgentRow, CacheInfo, CacheVerdict, ErrorEntry, LogKind, SeenModels
 import { keepWarmTick, refreshCollisions, writeLedger } from './guards'
 import { TIER_NAME, releaseOf, tierOf, versionOf } from './tiers'
 import { contextParts } from './load-report'
-import { activityOf, cacheFromRelay, cacheState, costDelta, dayKey, errorText, hasFreshError, isAnimated, isFinished, moodOf, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples, type Mood } from './logic'
+import { cacheFromRelay, cacheState, costDelta, dayKey, errorText, pushError, pushLog, sessionErrors, recordSample, ttlMs, type DailySamples } from './logic'
+import { activityOf, hasFreshFailure, isFinished, isMoving, moodOf, type Activity, type Mood, type TurnReason } from './mood'
 
 // Declared again in each module that touches them: the state scan reads each module alone.
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
@@ -27,7 +28,8 @@ const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, {
 const tasks = atom({ plugin: 'compagnon', key: 'tasks' } as const, [], { shape: 'v1' })
 const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 'v1' })
 const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
-const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, null, { shape: 'v1' })
+const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
 
 const TICK_MS = 15_000
@@ -61,23 +63,30 @@ export async function errorsNow($: $): Promise<ErrorEntry[]> {
   return sessionErrors((list ?? []) as ErrorEntry[], session)
 }
 
-/** The companion's mood now, from the same state the pane reads. */
-export async function moodNow($: $): Promise<Mood> {
-  const [now, ag, w, clash, started, ended, errors] = await Promise.all([$.clock.now(), read($, agents), read($, waiting), read($, collisions), read($, turnStartedAt), read($, lastTurnEnd), errorsNow($)])
-  return moodOf({ isFailed: ag.some((a: { status: string }) => a.status === 'failed') || hasFreshError(errors, started, now), isWaiting: Boolean(w) || clash.length > 0, activity: activityOf(started, ended, ag, now) })
+/**
+ * What the pane and the animation read: the activity, the mood, and whether anything moves. A wait is a permission prompt or an
+ * open collision question (an `idle_prompt` is rest, and an allowed collision waits for no one). A failure is fresh for the turn
+ * in flight, or two minutes; a failed agent stays listed past that, the mood follows the rest.
+ */
+export async function readMood($: $): Promise<{ mood: Mood; isMoving: boolean; activity: Activity; waitAt: number | null }> {
+  const [now, ag, w, ask, started, ended, reason, errors] = await Promise.all([$.clock.now(), read($, agents), read($, waiting), read($, collisionAsk), read($, turnStartedAt), read($, lastTurnEnd), read($, lastTurnReason), errorsNow($)])
+  const failures = [...ag.filter((a: { status: string }) => a.status === 'failed').map((a: { endedAt?: number; firstSeen: number }) => a.endedAt ?? a.firstSeen), ...errors.map(e => e.at)]
+  const activity = activityOf(started, ended, ag, now, (reason ?? 'answer') as TurnReason)
+  const state = { isFailed: hasFreshFailure(failures, started, now), isWaiting: Boolean(w) || ask !== null, activity }
+  return { mood: moodOf(state), isMoving: isMoving(state), activity, waitAt: w?.at ?? ask?.at ?? null }
 }
 
 let isAnimating = false
 /**
- * Redraws the pane every FRAME_MS while the mood moves (work, wait), and stops the moment it does not: nothing runs at rest.
+ * Redraws the pane every FRAME_MS while something is in flight or a permission waits, whatever the mood (a failed agent beside a running one still moves), and stops the moment nothing does: nothing runs at rest.
  * A frame is `$.ui.invalidate`, never a store or atom write: the pane derives its frame from the clock. One loop at a time;
- * called whenever a mood that moves may have begun (a turn, a prompt, an agent, the poll).
+ * called whenever motion may have begun (a turn, a prompt, an agent, the poll).
  */
 export async function animateWhileMoving($: $): Promise<void> {
   if (isAnimating) return
   isAnimating = true
   try {
-    while (isAnimated(await moodNow($))) {
+    while ((await readMood($)).isMoving) {
       // A wait that rejects is the environment going away (a reload): the loop ends with it.
       if (!(await $.clock.sleep(FRAME_MS).then(() => true, () => false))) return
       $.ui.invalidate('ui.render')

@@ -3,7 +3,8 @@ import type { CacheVerdict, Decision, Goal, KeepWarm, Pin, RouteRecord, TaskRow,
 import { ACCENT, TONE, gauge, k, spin, type El } from './card-frame'
 import { spriteRuns, SPRITE_COLUMNS } from './companion-sprite'
 import { shownModel } from './chain-schema'
-import { COLD_SOON_MS, ageLabel, clockLabel, elapsedLabel, goalProgress, type Activity, type Mood } from './logic'
+import { COLD_SOON_MS, ageLabel, clockLabel, elapsedLabel, goalProgress } from './logic'
+import type { Activity, Mood } from './mood'
 import { SOURCE_NAME } from './request-routing'
 import { TIER_NAME } from './tiers'
 
@@ -42,8 +43,10 @@ function Title(E: El, hd: HeadInput) {
     case 'done':
       return <Text wrap="truncate-end"><Text color={TONE.done.color} bold>✓ Turn done</Text>{hd.activity?.state === 'done' ? <Text dimColor> · {ageLabel(now - hd.activity.at)} ago</Text> : null}</Text>
     case 'error':
-      return <Text color={TONE.error.color} bold wrap="truncate-end">✕ Something failed</Text>
+      // A turn that ended badly says how; otherwise a failed agent or an error of the mod.
+      return <Text color={TONE.error.color} bold wrap="truncate-end">✕ {hd.activity?.state === 'ended' ? (hd.activity.reason === 'refusal' ? 'Turn ended: refused' : 'Turn ended: API error') : 'Something failed'}</Text>
     default:
+      if (hd.activity?.state === 'ended') return <Text wrap="truncate-end"><Text dimColor>z </Text><Text bold>Interrupted</Text><Text dimColor> · {ageLabel(now - hd.activity.at)} ago</Text></Text>
       return <Text wrap="truncate-end"><Text dimColor>z </Text><Text bold>Resting</Text>{hd.lastTurnEnd > 0 ? <Text dimColor> · idle {ageLabel(now - hd.lastTurnEnd)}</Text> : null}</Text>
   }
 }

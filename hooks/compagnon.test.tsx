@@ -6,7 +6,8 @@ import { advise, adviseClassified, CLASSIFY_LABELS, RULES, delegationHint, needs
 import { chargeReport, contextParts } from './load-report'
 import { SPRITE_COLUMNS, SPRITE_ROWS, spriteCells, spriteRuns } from './companion-sprite'
 import { FRAME_MS } from './session-tracking'
-import { activeAgents, activityOf, asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, DONE_MS, elapsedLabel, ERROR_LOG_MAX, errorReport, clockLabel, errorSummary, errorText, FRESH_ERROR_MS, goalProgress, hasFreshError, isAnimated, isFinished, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, moodOf, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
+import { activeAgents, activityOf, DONE_MS, FRESH_FAILURE_MS, hasFreshFailure, isFinished, isInFlight, isMoving, moodOf } from './mood'
+import { asLedger, cacheFromRelay, cacheState, collisionFor, collisionsWith, costDelta, costSummary, elapsedLabel, ERROR_LOG_MAX, errorReport, clockLabel, errorSummary, errorText, goalProgress, isOptionOn, keepWarmDue, lastSevenDays, LOG_MAX, needsColdGuard, parseStatus, pingMissed, pushError, pushLog, recordSample, sessionErrors, tokensOption, touchedRepos, ttlMs } from './logic'
 
 const NOW = Date.parse('2026-11-05T12:00:00Z')
 const warm = (recache: number, expiresIn = 1_800): CacheInfo => ({
@@ -211,6 +212,10 @@ test('a collision is another live session editing the same file in the window, u
   expect(collisionFor('c:/r/a.ts', [other], NOW, 30 * 60_000, allowed)).toBe(null)
   const mine = { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: NOW } }
   expect(collisionsWith(mine, [other], NOW, 30 * 60_000)).toEqual([{ file: 'a.ts', who: 'refonte hub', at: NOW - 5 * 60_000 }])
+  // once the person said Proceed to that edit it is no collision, until the other session edits again
+  expect(collisionsWith(mine, [other], NOW, 30 * 60_000, allowed)).toEqual([])
+  const again = { ...other, files: { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: NOW - 60_000 } } }
+  expect(collisionsWith(mine, [again], NOW, 30 * 60_000, allowed)).toHaveLength(1)
 })
 
 test('another session ledger that is valid JSON but not a ledger is dropped or trimmed, never thrown on', async () => {
@@ -744,7 +749,7 @@ test('a failed refresh is recorded and shown on the status line, a good loop add
 test('the band and the status line count the same active agents: an ended one (completed, failed, killed) is not active', async ($, on) => {
   const statuses = ['running', 'waiting', 'idle', 'pending', 'completed', 'failed', 'killed']
   const everyStatus = statuses.map((status, i) => ({ id: `a${i}`, label: `agent ${status}`, type: 'general-purpose', status, firstSeen: LIVE - 60_000 }))
-  expect(activeAgents(everyStatus).map(a => a.status)).toEqual(['running', 'waiting', 'idle', 'pending'])
+  expect(activeAgents(everyStatus).map(a => a.status)).toEqual(['running', 'waiting'])
   for (const status of ['completed', 'failed', 'killed']) expect(isFinished(status)).toBe(true)
   const state: Record<string, unknown> = { ...OPEN, agents: everyStatus }
   const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
@@ -766,11 +771,11 @@ test('the band and the status line count the same active agents: an ended one (c
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const lineCount = (await pane.find({ type: 'Text', text: /agents \[\d+ active\]/ }))?.text.match(/agents \[(\d+) active\]/)?.[1]
-  // the failed agent has its own FAILED line (red) and is not counted running: 4 agents and the Bash call run
-  expect((await pane.find({ type: 'Text', text: /^RUNNING {2}1 tool · 4 agents$/ }))?.text).toMatch(/4 agents/)
+  // the failed agent has its own FAILED line (red); idle and pending teammates are not in flight: 2 agents and the Bash call run
+  expect((await pane.find({ type: 'Text', text: /^RUNNING {2}1 tool · 2 agents$/ }))?.text).toMatch(/2 agents/)
   expect((await pane.find({ type: 'Text', text: /^agent failed · agent failed · / }))?.props.color).toBe('error')
   await pane.unmount()
-  expect(bandCount).toBe('4')
+  expect(bandCount).toBe('2')
   expect(lineCount).toBe(bandCount)
 })
 
@@ -968,17 +973,52 @@ test('the mood is derived by priority: error, then waiting for you, then work, t
   expect(moodOf({ isFailed: false, isWaiting: true, activity: done })).toBe('wait')
   expect(moodOf({ isFailed: true, isWaiting: true, activity: working })).toBe('error')
   expect(moodOf({ isFailed: true, isWaiting: false, activity: null })).toBe('error')
-  // only work and a wait move: the pane is redrawn every frame for those two and never otherwise
-  expect((['work', 'wait', 'done', 'error', 'idle'] as const).filter(isAnimated)).toEqual(['work', 'wait'])
+  // a turn that ended badly is an error, an interrupted one is rest, only an answer is done
+  const ended = (reason: 'aborted' | 'refusal' | 'error') => ({ state: 'ended', at: LIVE - 2_000, reason }) as const
+  expect(moodOf({ isFailed: false, isWaiting: false, activity: ended('error') })).toBe('error')
+  expect(moodOf({ isFailed: false, isWaiting: false, activity: ended('refusal') })).toBe('error')
+  expect(moodOf({ isFailed: false, isWaiting: false, activity: ended('aborted') })).toBe('idle')
 })
 
-test('an error of the mod counts for the turn in flight, or for a minute when none runs', async () => {
-  expect(hasFreshError([], 0, LIVE)).toBe(false)
-  expect(hasFreshError([{ at: LIVE - 10_000 }], LIVE - 30_000, LIVE)).toBe(true) // during this turn
-  expect(hasFreshError([{ at: LIVE - 40_000 }], LIVE - 30_000, LIVE)).toBe(false) // an earlier turn's
-  expect(hasFreshError([{ at: LIVE - 10_000 }], 0, LIVE)).toBe(true) // no turn: the last minute
-  expect(hasFreshError([{ at: LIVE - FRESH_ERROR_MS - 1 }], 0, LIVE)).toBe(false)
+test('the pane moves while something is in flight or a permission waits, whatever the mood says', async () => {
+  const working = { state: 'working', since: LIVE - 5_000 } as const
+  expect(isMoving({ isWaiting: false, activity: working })).toBe(true)
+  expect(isMoving({ isWaiting: true, activity: null })).toBe(true)
+  expect(isMoving({ isWaiting: false, activity: null })).toBe(false)
+  expect(isMoving({ isWaiting: false, activity: { state: 'done', at: LIVE } })).toBe(false)
+  expect(isMoving({ isWaiting: false, activity: { state: 'ended', at: LIVE, reason: 'error' } })).toBe(false)
+  // an agent failed beside one that runs: the mood is error, yet the activity (and so the redraw) goes on
+  const mixed = [{ status: 'failed', firstSeen: LIVE - 90_000, endedAt: LIVE - 60_000 }, { status: 'running', firstSeen: LIVE - 30_000 }]
+  expect(isMoving({ isWaiting: false, activity: activityOf(0, 0, mixed, LIVE) })).toBe(true)
+})
+
+test('a teammate that is idle or pending is not in flight: it neither works nor moves the pane', async () => {
+  for (const status of ['idle', 'pending']) {
+    expect(isInFlight(status)).toBe(false)
+    expect(isFinished(status)).toBe(false)
+    expect(activityOf(0, 0, [{ status, firstSeen: LIVE - 60_000 }], LIVE)).toBe(null)
+  }
+  expect(['running', 'waiting'].every(isInFlight)).toBe(true)
+  expect(activeAgents(['pending', 'running', 'waiting', 'idle', 'completed'].map(status => ({ status })))).toEqual([{ status: 'running' }, { status: 'waiting' }])
+})
+
+test('a failure is fresh for the turn in flight, or for two minutes when none runs', async () => {
+  expect(hasFreshFailure([], 0, LIVE)).toBe(false)
+  expect(hasFreshFailure([LIVE - 10_000], LIVE - 30_000, LIVE)).toBe(true) // during this turn
+  expect(hasFreshFailure([LIVE - 40_000], LIVE - 30_000, LIVE)).toBe(false) // an earlier turn's
+  expect(hasFreshFailure([LIVE - 100_000], 0, LIVE)).toBe(true) // no turn: the last two minutes
+  expect(hasFreshFailure([LIVE - FRESH_FAILURE_MS - 1], 0, LIVE)).toBe(false)
   expect(clockLabel(41 * 60_000 + 8_000)).toBe('41:08')
+})
+
+test('how the main turn ended decides what is shown: only an answer is done', async () => {
+  expect(activityOf(0, LIVE - 3_000, [], LIVE, 'answer')).toEqual({ state: 'done', at: LIVE - 3_000 })
+  expect(activityOf(0, LIVE - 3_000, [], LIVE, 'aborted')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'aborted' })
+  expect(activityOf(0, LIVE - 3_000, [], LIVE + DONE_MS, 'aborted')).toBe(null) // an interruption fades with the done
+  expect(activityOf(0, LIVE - 3_000, [], LIVE + DONE_MS, 'error')).toEqual({ state: 'ended', at: LIVE - 3_000, reason: 'error' }) // a failure stays two minutes
+  expect(activityOf(0, LIVE - 3_000, [], LIVE + FRESH_FAILURE_MS, 'refusal')).toBe(null)
+  // an agent that ended after the turn makes the end an ordinary one
+  expect(activityOf(0, LIVE - 3_000, [{ status: 'completed', firstSeen: LIVE - 9_000, endedAt: LIVE - 1_000 }], LIVE, 'error')).toEqual({ state: 'done', at: LIVE - 1_000 })
 })
 
 test('the companion is 16 columns by 9 rows for every mood and frame, half blocks only', async () => {
@@ -1177,62 +1217,193 @@ test('each mood is read from the real state, in the head', async ($, on) => {
     state = next
     now = at
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    const title = (await ui.find({ type: 'Text', text: /Claude is working|Waiting for you|Turn done|Something failed|Resting/ }))?.text
+    const title = (await ui.find({ type: 'Text', text: /Claude is working|Waiting for you|Turn done|Turn ended|Something failed|Interrupted|Resting/ }))?.text
     await ui.unmount()
     return title
   }
   const calm = { ...STATE, collisions: [], running: [], agents: [], tasks: [], goal: null }
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000 })).toMatch(/Claude is working · 0m05/)
   expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting })).toMatch(/Waiting for you · 0m38/)
-  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisions: STATE.collisions })).toMatch(/Waiting for you/) // a collision waits for you too
-  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: BUSY_ALL.agents })).toMatch(/Something failed/)
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisions: STATE.collisions })).toMatch(/Claude is working/) // a listed collision is information: nobody is asked
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, collisionAsk: { at: LIVE - 38_000 } })).toMatch(/Waiting for you · 0m38/) // an open question waits, timed from the question, not from the other session's edit
+  const failedAt = (endedAt: number) => [{ id: 'f1', label: 'lint pass', type: 'lint', status: 'failed', firstSeen: LIVE - 90_000, endedAt }]
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: failedAt(LIVE - 1_000) })).toMatch(/Something failed/)
+  // a failure of an earlier turn stays listed in FAILED but the head follows the rest
+  expect(await head({ ...calm, turnStartedAt: LIVE - 5_000, waiting: BUSY_ALL.waiting, agents: failedAt(LIVE - 60_000) })).toMatch(/Waiting for you/)
+  expect(await head({ ...calm, agents: failedAt(LIVE - 3_000) })).toMatch(/Something failed/) // no turn: fresh for two minutes
+  expect(await head({ ...calm, agents: failedAt(LIVE - 200_000) })).toMatch(/Resting/)
+  // a turn ended by an API error or a refusal says so, an interrupted one is rest
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'error' })).toMatch(/Turn ended: API error/)
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'refusal' })).toMatch(/Turn ended: refused/)
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'aborted' })).toMatch(/Interrupted · 4 s ago/)
+  expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000, lastTurnReason: 'answer' })).toMatch(/Turn done/)
   expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000 })).toMatch(/Turn done · 4 s ago/)
   expect(await head({ ...calm, lastTurnEnd: LIVE - 4_000 }, LIVE + DONE_MS)).toMatch(/Resting · idle 24 s/)
 })
 
-test('the pane redraws about twice a second while a turn runs, stops when it ends, and writes nothing to the store', async ($, on) => {
+/** The engine under the plugin for the animation tests: a clock, atoms kept in a map, and counters of redraws, atom writes and store writes. */
+function animationHarness(on: Parameters<TestBody>[1], files: Record<string, string> = {}) {
   const clock = mock.clock(on, { now: LIVE })
-  let redraws = 0
-  let writes = 0
+  const atoms = new Map<string, unknown>()
+  const versions = new Map<string, number>()
+  const count = { redraws: 0, atomWrites: 0, storeWrites: 0 }
   on('ui.invalidate', () => {
-    redraws += 1
+    count.redraws += 1
     return { value: undefined } as never
   })
   on('store.set', () => {
-    writes += 1
+    count.storeWrites += 1
     return { value: undefined }
   })
-  const atoms = new Map<string, unknown>()
-  const versions = new Map<string, number>()
   const arrays = ['running', 'background', 'agents', 'repos', 'usedRepos', 'collisions', 'tasks', 'journal', 'costs', 'ctxParts']
   on('state.get', (_, e) => {
     const key = (e as unknown as { key: string }).key
-    return { value: { value: { shape: 'v1', value: atoms.has(key) ? atoms.get(key) : arrays.includes(key) ? [] : ['lastTurnEnd', 'turnStartedAt', 'tick', 'costMark'].includes(key) ? 0 : null }, version: versions.get(key) ?? 1 } }
+    const fallback = arrays.includes(key) ? [] : ['lastTurnEnd', 'turnStartedAt', 'tick', 'costMark'].includes(key) ? 0 : key === 'seen' ? {} : key === 'advisor' ? { calls: 0, lastAt: 0, pending: 0 } : null
+    return { value: { value: { shape: 'v1', value: atoms.has(key) ? atoms.get(key) : fallback }, version: versions.get(key) ?? 1 } }
   })
   on('state.set', (_, e) => {
     const { key, value } = e as unknown as { key: string; value: { value: unknown } }
+    count.atomWrites += 1
     atoms.set(key, value.value)
     versions.set(key, (versions.get(key) ?? 1) + 1)
     return { value: { isSet: true, version: versions.get(key) } } as never
   })
   on('store.get', () => ({ value: undefined }))
   on('session.id', () => ({ value: 'session-1' }))
-  on('session.start', () => ({ cwd: 'C:/work/repo' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { context: { percent: 10, tokens: 20_000, window: 200_000 }, rateLimits: [], cost: { usd: 0 }, startedAt: LIVE } }))
+  on('agent.list', () => ({ value: [] }))
+  on('fs.read', (_, e) => {
+    const path = (e as unknown as { path: string }).path
+    const hit = Object.entries(files).find(([name]) => path.endsWith(name))
+    if (hit) return { value: hit[1] }
+    throw new Error('no relay file')
+  })
+  on('env.get', () => ({ value: undefined }))
   on('turn.start', (_, e) => ({ turnId: (e as unknown as { turnId?: string }).turnId ?? 't1' }) as never)
-  on('turn.complete', () => ({}) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('classic.Notification', () => ({}) as never)
+  return { clock, atoms, count }
+}
+const notify = (type: string) => ({ notification_type: type, message: 'Claude needs your permission to use Bash' }) as never
+const complete = (reason: string) => ({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason }) as never
+
+test('the pane redraws about twice a second while a turn runs, stops when it ends, and writes neither atom nor store', async ($, on) => {
+  const { clock, atoms, count } = animationHarness(on)
   await clock.settle()
-  expect(redraws).toBe(0) // at rest nothing is redrawn
+  expect(count.redraws).toBe(0) // at rest nothing is redrawn
   await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  const writesAtStart = { atom: count.atomWrites, store: count.storeWrites }
   await clock.advance(2_000)
-  expect(redraws).toBe(Math.floor(2_000 / FRAME_MS)) // a redraw per frame while the turn runs
+  expect(count.redraws).toBe(Math.floor(2_000 / FRAME_MS)) // a redraw per frame while the turn runs
   expect(FRAME_MS).toBeGreaterThanOrEqual(100) // the engine allows ten a second
   await clock.advance(1_000)
-  expect(redraws).toBe(Math.floor(3_000 / FRAME_MS))
-  // the turn ends: the loop stops at its next look, and no later redraw comes
-  atoms.set('turnStartedAt', 0)
+  expect(count.redraws).toBe(Math.floor(3_000 / FRAME_MS))
+  // a frame is a redraw: three seconds of animation wrote nothing, to an atom or to the store
+  expect({ atom: count.atomWrites, store: count.storeWrites }).toEqual(writesAtStart)
+  // the turn ends (an answer): the loop stops at its next look, and no later redraw comes
+  await $.turn.complete(complete('answer'))
   await clock.advance(FRAME_MS)
-  const stopped = redraws
+  const stopped = count.redraws
   await clock.advance(10_000)
-  expect(redraws).toBe(stopped)
-  expect(writes).toBe(0) // a frame is a redraw, never a store write
+  expect(count.redraws).toBe(stopped)
+  expect(atoms.get('turnStartedAt')).toBe(0)
+  expect(atoms.get('lastTurnReason')).toBe('answer')
+})
+
+test('a permission waiting is a wait that animates, an approved one no longer waits once the turn ends, and the loop stops', async ($, on) => {
+  const { clock, atoms, count } = animationHarness(on)
+  await clock.settle()
+  await $.classic.Notification(notify('permission_prompt'))
+  expect(atoms.get('waiting')).toMatchObject({ kind: 'permission_prompt' })
+  const before = count.atomWrites
+  await clock.advance(2_000)
+  expect(count.redraws).toBe(Math.floor(2_000 / FRAME_MS)) // a wait moves with no turn at all
+  expect(count.atomWrites).toBe(before)
+  // the prompt was answered and the turn ended: the wait is cleared, the loop ends, nothing redraws after
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  await $.turn.complete(complete('answer'))
+  expect(atoms.get('waiting')).toBe(null)
+  await clock.advance(FRAME_MS)
+  const stopped = count.redraws
+  await clock.advance(10_000)
+  expect(count.redraws).toBe(stopped)
+})
+
+test('a permission left waiting when the turn is interrupted is cleared too, and the reason is kept', async ($, on) => {
+  const { clock, atoms } = animationHarness(on)
+  await clock.settle()
+  await $.classic.Notification(notify('permission_prompt'))
+  await $.turn.complete(complete('aborted'))
+  expect(atoms.get('waiting')).toBe(null)
+  expect(atoms.get('lastTurnReason')).toBe('aborted')
+})
+
+test('an idle notice is rest: it records no wait, starts no loop and draws no waiting band', async ($, on) => {
+  const { clock, atoms, count } = animationHarness(on)
+  await clock.settle()
+  await $.classic.Notification(notify('idle_prompt'))
+  expect(atoms.get('waiting') ?? null).toBe(null)
+  await clock.advance(5_000)
+  expect(count.redraws).toBe(0)
+  const band = await $.ui.mount({
+    plugin: 'compagnon', component: 'AbovePrompt', surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 90, scroll: { offset: 0, bodyRows: 3 }, view: {} },
+  } as never)
+  expect(await band.find({ type: 'Text', text: /waiting for you/ })).toBe(undefined)
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Text', text: /^FOR YOU$|Waiting for you/ })).toBe(undefined)
+  await pane.unmount()
+})
+
+test('a collision question waits for you only while it is open, counted from the question itself', async ($, on) => {
+  const other: Ledger = { id: 'other-session', title: 'refonte hub', updatedAt: LIVE, ended: false, files: { 'c:/r/a.ts': { path: 'C:/r/a.ts', at: LIVE - 5 * 60_000 } } }
+  const { clock, atoms } = animationHarness(on, { 'other.json': JSON.stringify(other) })
+  let askedWith: unknown = 'never asked'
+  on('fs.list', () => ({ value: [{ name: 'other.json', kind: 'file', size: 10, modifiedAt: LIVE }] }) as never)
+  on('fs.write', () => ({ value: undefined }) as never)
+  on('session.root', () => ({ value: 'C:/r' }))
+  on('session.surfaces', () => ({ value: ['terminal'] }) as never)
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('command.register', () => ({ value: { command: 'compagnon' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', () => ({ cwd: 'C:/r' }))
+  on('tool.call', (_, e) => {
+    if ((e as unknown as { tool: string }).tool !== 'AskUserQuestion') return { result: 'ok' } as never
+    askedWith = atoms.get('collisionAsk') // what the pane reads while the question is open
+    throw new Error('dismissed') // a dismissed question reads as Cancel
+  })
+  await $.session.start({ cwd: 'C:/r', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  await $.tool.call({ tool: 'Edit', file_path: 'C:/r/a.ts' } as never).catch(() => undefined)
+  expect(askedWith).toEqual({ at: LIVE }) // the wait counts from the question, not from the other session's edit five minutes before
+  expect(atoms.get('collisionAsk')).toBe(null) // answered (here dismissed): nothing waits any more
+})
+
+test('narrow, each section row is one line: no name column, no key hint, every piece truncating, the actions kept', async ($, on) => {
+  mockState(on, { ...BUSY_ALL, cache: { ...(STATE.cache as object), warm: false }, keepWarm: null })
+  const texts = async (columns: number) => {
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns }, surface: 'terminal' } as never)
+    const out = { all: (await ui.findAll({ type: 'Text' })).map(t => ({ text: t.text, wrap: t.props.wrap })), buttons: (await ui.findAll({ type: 'Button' })).map(b => b.props.label), widths: (await ui.findAll({ type: 'Box' })).map(b => b.props.width).filter((w): w is number => typeof w === 'number') }
+    await ui.unmount()
+    return out
+  }
+  for (const columns of [20, 24, 28]) {
+    const narrow = await texts(columns)
+    // the name column and the key hints are dropped (the keys line still answers to the keys)
+    for (const dropped of [/^permission {1,2}$/, /^collision {2}$/, /^handoff {4}$/, /^answer in chat$/, /^c restart$/, /^k keep warm$/, /^h handoff$/]) expect(narrow.all.find(t => dropped.test(t.text))).toBe(undefined)
+    // what a row says truncates instead of wrapping
+    for (const row of [/Claude needs your permission/, /also edited in/, /ready, written to/, /next send rereads/, /agent failed/, /may be stuck/, /in background/]) {
+      const found = narrow.all.find(t => row.test(t.text))
+      expect(found?.wrap).toBe('truncate-end')
+    }
+    // the actions stay: view and stop still do something
+    expect(narrow.buttons).toEqual(expect.arrayContaining(['view', 'stop']))
+    expect(narrow.widths.filter(w => w > columns)).toEqual([])
+  }
+  // wide, the name column and the hints are there
+  const wide = await texts(64)
+  expect(wide.all.some(t => /^permission {1,2}$/.test(t.text))).toBe(true)
+  expect(wide.all.some(t => /^answer in chat$/.test(t.text))).toBe(true)
 })

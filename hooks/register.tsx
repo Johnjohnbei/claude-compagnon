@@ -1,26 +1,26 @@
 // Companion pane: opens with every session, watches the model, the context, the plan, stalled work
 // and the state of the followed repositories. See README.md.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Register } from 'claude-code'
 
-import type { BackgroundTask, ErrorEntry, RouteRecord, SeenModels } from '../types'
-import { askHandoff, checkHandoff, guardEdit, initGuards, nameSession, noteTurnStart, renewSession, setKeepWarm, writeLedger } from './guards'
+import type { ErrorEntry, RouteRecord, SeenModels } from '../types'
+import { askHandoff, guardEdit, initGuards, nameSession, renewSession, setKeepWarm, writeLedger } from './guards'
 import { TIER_NAME } from './tiers'
 import { routeReport, spawnModel } from './request-routing'
 import { chargeReport } from './load-report'
-import { errorReport, isOptionOn, normPath, parseStatus, tokensOption, touchedRepos } from './logic'
+import { errorReport, isOptionOn, normPath, tokensOption, touchedRepos } from './logic'
 import { renderBand, renderPane, restorePaneMode } from './pane-view'
 import { coldSendGuard, isAliasSupported, routePrompt } from './prompt-routing'
-import { animateWhileMoving, note, pollForever, quietly, recordError, recordTurn, refreshAgents, refreshCache, refreshUsage, trackModel, trackTasks } from './session-tracking'
+import { note, pollForever, quietly, recordError, refreshUsage, trackModel, trackTasks } from './session-tracking'
+import { followedDirs, refreshRepos, setProjects } from './repo-tracking'
+import { registerTurnHooks } from './turn-hooks'
 
 const PANE = 'compagnon'
 const pin = atom({ plugin: 'compagnon', key: 'pin' } as const, null, { shape: 'v1' })
 const decision = atom({ plugin: 'compagnon', key: 'decision' } as const, null, { shape: 'v1' })
 const lastTurnEnd = atom({ plugin: 'compagnon', key: 'lastTurnEnd' } as const, 0, { shape: 'v1' })
 const running = atom({ plugin: 'compagnon', key: 'running' } as const, [], { shape: 'v1' })
-const background = atom({ plugin: 'compagnon', key: 'background' } as const, [], { shape: 'v1' })
 const waiting = atom({ plugin: 'compagnon', key: 'waiting' } as const, null, { shape: 'v1' })
-const repos = atom({ plugin: 'compagnon', key: 'repos' } as const, [], { shape: 'v1' })
 const usedRepos = atom({ plugin: 'compagnon', key: 'usedRepos' } as const, [], { shape: 'v1' })
 const advisor = atom({ plugin: 'compagnon', key: 'advisor' } as const, { calls: 0, lastAt: 0, pending: 0 }, { shape: 'v1' })
 const seen = atom({ plugin: 'compagnon', key: 'seen' } as const, {}, { shape: 'v1' })
@@ -31,13 +31,11 @@ const goal = atom({ plugin: 'compagnon', key: 'goal' } as const, null, { shape: 
 const keepWarm = atom({ plugin: 'compagnon', key: 'keepWarm' } as const, null, { shape: 'v1' })
 const collisions = atom({ plugin: 'compagnon', key: 'collisions' } as const, [], { shape: 'v1' })
 const handoff = atom({ plugin: 'compagnon', key: 'handoff' } as const, null, { shape: 'v1' })
+const collisionAsk = atom({ plugin: 'compagnon', key: 'collisionAsk' } as const, null, { shape: 'v1' })
+const lastTurnReason = atom({ plugin: 'compagnon', key: 'lastTurnReason' } as const, null, { shape: 'v1' })
 const isWorking = atom({ plugin: 'compagnon', key: 'isWorking' } as const, false, { shape: 'v1' })
 /** When the main turn in flight began, 0 when none: the activity indicator's clock. */
 const turnStartedAt = atom({ plugin: 'compagnon', key: 'turnStartedAt' } as const, 0, { shape: 'v1' })
-
-const REPOS_MS = 60_000
-
-type $ = EngineInterface
 
 const labelOf = (tool: string, input: Record<string, unknown>): string => {
   const s = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '')
@@ -45,7 +43,6 @@ const labelOf = (tool: string, input: Record<string, unknown>): string => {
   return raw.replace(/\s+/g, ' ').slice(0, 48)
 }
 
-let reposAt = 0
 /** Context size over which a send on a cold cache asks first (`coldGuardTokens` option; 0 = never). */
 let coldGuardTokens = 150_000
 /** The band above the prompt: on unless the `showBand` option is switched off. */
@@ -56,32 +53,8 @@ let isCompanionShown = true
 let isClassifierOn = true
 const EDITORS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
-/** Repositories the Projects card follows: the `projects` option, or the session's own project. */
-let projects: string[] = []
-/** The directories the card follows, once read: what a tool call is matched against. */
-let followed: string[] = []
-
-async function refreshRepos($: $) {
-  reposAt = await $.clock.now()
-  const root = await $.session.root()
-  const dirs = projects.length > 0 ? projects : [root]
-  followed = dirs
-  // The session's own project counts as used from the start.
-  await update($, usedRepos, list => [...new Set([...list, ...dirs.filter(d => normPath(d) === normPath(root)).map(normPath)])])
-  const rows = await Promise.all(
-    dirs.map(async dir => {
-      const name = dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? dir
-      const status = await $.process.run(['git', '-C', dir, 'status', '--porcelain=v2', '--branch'])
-      if (status.exitCode !== 0) return null
-      const log = await $.process.run(['git', '-C', dir, 'log', '-1', '--format=%cr · %s'])
-      return { ...parseStatus(name, status.stdout), dir: normPath(dir), lastCommit: log.stdout.trim() || undefined }
-    }),
-  )
-  await update($, repos, () => rows.filter(r => r !== null))
-}
-
 export const register: Register = (on, options) => {
-  projects = String(options.projects ?? '').split(';').map(p => p.trim()).filter(Boolean)
+  setProjects(String(options.projects ?? ''))
   isBandShown = isOptionOn(options.showBand)
   isCompanionShown = isOptionOn(options.showCompanion)
   isClassifierOn = isOptionOn(options.classify)
@@ -144,7 +117,7 @@ export const register: Register = (on, options) => {
       await renewSession($)
       await Promise.all([
         update($, tasks, () => []), update($, goal, () => null), update($, keepWarm, () => null), update($, lastTurnEnd, () => 0),
-        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []), update($, turnStartedAt, () => 0),
+        update($, handoff, () => null), update($, isWorking, () => false), update($, collisions, () => []), update($, turnStartedAt, () => 0), update($, lastTurnReason, () => null), update($, collisionAsk, () => null), update($, waiting, () => null),
       ])
     })
     return next(e)
@@ -231,7 +204,7 @@ export const register: Register = (on, options) => {
       const start = await $.clock.now()
       await update($, waiting, () => null)
       await update($, running, list => [...list, { id, tool: e.tool, label: labelOf(e.tool, e as unknown as Record<string, unknown>), start }])
-      const hit = touchedRepos(e as unknown as Record<string, unknown>, followed).map(normPath)
+      const hit = touchedRepos(e as unknown as Record<string, unknown>, followedDirs()).map(normPath)
       if (hit.length > 0) await update($, usedRepos, list => (hit.every(h => list.includes(h)) ? list : [...new Set([...list, ...hit])]))
     })
     try {
@@ -246,79 +219,7 @@ export const register: Register = (on, options) => {
     return next.called ? undefined : next(e)
   }) // own failure: pass the work on, never run it twice
 
-  on('classic.Notification', async ($, e, next) => {
-    if (e.notification_type === 'permission_prompt' || e.notification_type === 'idle_prompt') {
-      await quietly($, async () => {
-        const at = await $.clock.now()
-        await update($, waiting, () => ({ kind: e.notification_type, message: e.message.slice(0, 80), at }))
-      })
-      void quietly($, () => animateWhileMoving($))
-    }
-    return next(e)
-  }).catch(async ($, e, next) => {
-    await recordError($, next.error, 'classic.Notification')
-    return next.called ? undefined : next(e)
-  }) // own failure: pass the work on, never run it twice
-
-  // Stop carries the background work still in flight: the only list of shells and monitors a mod can read.
-  on('classic.Stop', async ($, e, next) => {
-    await quietly($, async () => {
-      const now = await $.clock.now()
-      const inFlight = e.background_tasks ?? []
-      await update($, background, (was: BackgroundTask[]) =>
-        inFlight.map(t => ({
-          id: t.id,
-          type: t.type,
-          label: (t.command ?? t.description).replace(/\s+/g, ' ').slice(0, 60),
-          firstSeen: was.find(w => w.id === t.id)?.firstSeen ?? now,
-        })),
-      )
-    })
-    return next(e)
-  }).catch(async ($, e, next) => {
-    await recordError($, next.error, 'classic.Stop')
-    return next.called ? undefined : next(e)
-  }) // own failure: pass the work on, never run it twice
-
-  on('turn.start', async ($, e, next) => {
-    if (!e.agentId)
-      await quietly($, async () => {
-        await update($, isWorking, () => true)
-        const at = await $.clock.now()
-        await update($, turnStartedAt, () => at)
-        await noteTurnStart($)
-      })
-      void quietly($, () => animateWhileMoving($))
-    return next(e)
-  }).catch(async ($, e, next) => {
-    await recordError($, next.error, 'turn.start')
-    return next.called ? undefined : next(e)
-  }) // own failure: pass the work on, never run it twice
-
-  on('turn.complete', async ($, e, next) => {
-    const done = await next(e)
-    // A subagent's end changes the RUNNING and DONE sections only.
-    if (e.agentId) {
-      await quietly($, () => refreshAgents($))
-      return done
-    }
-    await quietly($, async () => {
-      await update($, isWorking, () => false)
-      await update($, turnStartedAt, () => 0)
-      await checkHandoff($)
-    })
-    // After `next`: a failure here must not lose the turn's result (it used to throw past it).
-    await quietly($, async () => {
-      const ended = await $.clock.now()
-      await update($, lastTurnEnd, () => ended)
-      await Promise.all([quietly($, () => refreshUsage($)), quietly($, () => refreshAgents($)), quietly($, () => refreshCache($))])
-    })
-    await quietly($, () => recordTurn($))
-    await quietly($, async () => {
-      if ((await $.clock.now()) - reposAt > REPOS_MS) await refreshRepos($)
-    })
-    return done
-  })
+  registerTurnHooks(on)
 
   // The band above the prompt: one line, the figures that say whether to open the pane.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

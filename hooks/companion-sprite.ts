@@ -1,7 +1,7 @@
 // The companion: a small artichoke (a nod to the Coeurdar logo) drawn in half blocks, 16 columns by 9 rows, tinted by the
 // mood. Pure functions, no engine call: a pixel grid in, rows of styled runs out. The character is original; the idea of a
 // figure that tells you when the agent needs you was inspired by Coucou (MIT), whose character is not used here.
-import type { Mood } from './logic'
+import type { Mood } from './mood'
 
 export const SPRITE_COLUMNS = 16
 export const SPRITE_ROWS = 9

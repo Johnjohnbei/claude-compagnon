@@ -53,6 +53,7 @@ export type RunningTool = { id: string; tool: string; label: string; start: numb
 export type BackgroundTask = { id: string; type: string; label: string; firstSeen: number }
 /** `parentId`: the agent whose loop spawned it (`$.agent.list()`), absent when the main loop did. */
 export type AgentRow = { id: string; label: string; type: string; status: string; firstSeen: number; endedAt?: number; parentId?: string }
+/** A permission prompt waiting for the person (`idle_prompt` is rest, never recorded here). */
 export type Waiting = { kind: string; message: string; at: number }
 
 export type Usage = {
@@ -87,12 +88,16 @@ declare module 'claude-code' {
       tick: Shaped<number>
       keepWarm: Shaped<KeepWarm | null>
       collisions: Shaped<Collision[]>
+      /** When a collision question was put to the person and is still unanswered; null when none is open. */
+      collisionAsk: Shaped<{ at: number } | null>
       handoff: Shaped<Handoff | null>
       tasks: Shaped<TaskRow[]>
       goal: Shaped<Goal | null>
       isWorking: Shaped<boolean>
       /** When the main turn in flight began, 0 when none: the activity indicator. */
       turnStartedAt: Shaped<number>
+      /** Why the last main turn ended (`answer`, `aborted`, `refusal`, `error`); null before the first. */
+      lastTurnReason: Shaped<string | null>
       journal: Shaped<LogEntry[]>
       costs: Shaped<TurnCost[]>
       costMark: Shaped<number>
